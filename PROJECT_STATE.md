@@ -1,61 +1,79 @@
 # 專案交接 / 記憶檔 (PROJECT STATE)
 
 > 給下一個 session 的接手說明。新 session 冷啟動，**先讀這份 + README.md** 即可接續。
+> 這份就是本專案的「memory」，可在 GitHub 分支或本機直接開啟。
 > 最後更新：2026-07-17
 
-## 這個專案是什麼
-個人台股研究系統：整合盤面/基本面/籌碼面/技術面，建立可重複運作的**選股篩選器**、
-**每日盤後掃描**與**投資決策框架**。⚠️ 研究用途，非投資建議。
+## 一、這個專案是什麼
+個人台股研究系統：整合盤面/基本面/籌碼面，建立可重複運作的**選股篩選器**、
+**每日盤後掃描**與**回測驗證**。⚠️ 全部研究/教育用途，非投資建議。
 
-## 已拍板的決策
-1. **資料源：免費** → **改用 TWSE 官方全市場端點**（MI_INDEX/T86/MI_MARGN，免費無 key、可批次）。
-   ⚠️ FinMind 免費版**不支援全市場批次**（回 "level is free"），只能逐檔查，故批次改走 TWSE。
-   FinMind client 仍保留（`src/finmind_client.py`）供日後逐檔細查。
-2. **語言：Python**（純腳本，暫不做網頁 dashboard）
-3. **T11 法人吸貨篩選器 ✅ 已完成，並已用真實資料產出首份清單**（見 reports/2026-07-17_T11…）。
-4. **執行環境**：本 session 網路**已放行**（可直接抓 TWSE），亦可本機跑。
-   目前僅上市(TWSE)，**未含上櫃(TPEX)**。
+## 二、已拍板的決策
+1. **資料源（免費）**
+   - 批次全市場 → **TWSE(上市) + TPEX(上櫃) 官方端點**（免金鑰）。
+   - 逐檔深掘 → **FinMind**（免費逐檔，月營收/EPS/PER；免費版不支援全市場批次）。
+2. **語言：Python 純腳本**（暫不做網頁 dashboard）。
+3. **市場自適應**：上市看投信、上櫃看外資（投信極少碰上櫃）；上櫃套更嚴量能門檻。
+4. **執行環境**：本 session 網路已放行，可直接抓；亦可本機跑。
 
-## 已完成並 commit（分支 claude/taiwan-stock-analysis-asx-mww0s6）
-- `reports/2026-07-17_3711_日月光投控.md` — 日月光當日跌停股災分析（大盤級股災、非個股利空、7/23 財報為關鍵）
-- `strategy/01_投資框架_短中長期.md` — 短/中/長期操作框架
-- `strategy/02_分析任務清單_backlog.md` — 完整任務 backlog（T01~T24）
-- `src/`、`scripts/` — FinMind 資料管線 + T11 篩選器（**已用合成資料驗證邏輯正確**）
+## 三、系統架構（全部 .py）
+```
+src/
+  config.py            # 所有門檻參數（T11/T16 等）
+  db.py                # SQLite 儲存層
+  twse_client.py       # 上市全市場（MI_INDEX/T86/MI_MARGN）
+  tpex_client.py       # 上櫃全市場（欄位經 FinMind 交叉驗證）
+  finmind_client.py    # FinMind 逐檔
+  enrich.py            # T30 基本面深掘
+  backtest.py          # T23 回測引擎
+  screeners/
+    institutional_accumulation.py  # T11 法人吸貨
+    relative_strength.py           # T16 抗跌強勢
+    market_breadth.py              # 市場廣度（能否進場）
+scripts/
+  update_data.py       # 抓資料進 DB（--market all/twse/tpex, --days N）
+  daily_scan.py        # T22 每日盤後：廣度 + T11 + T16 + 雙訊號交集
+  run_t11.py / run_t30.py / run_backtest.py
+```
 
-## 本機執行方式
+## 四、模組完成度
+| 模組 | 功能 | 狀態 |
+|---|---|---|
+| 資料管線 | TWSE+TPEX 全市場逐日 | ✅ |
+| T11 | 法人吸貨（上市投信/上櫃外資）+ 加嚴護欄 | ✅ |
+| T16 | 抗跌強勢股（相對大盤強弱） | ✅ |
+| 市場廣度 | 漲跌家數 + 站上20MA% → 判斷進場時機 | ✅ |
+| T22 | 每日盤後一鍵掃描 | ✅ |
+| T30 | 短名單基本面深掘（FinMind） | ✅ |
+| T23 | 回測引擎（事件研究，已測 1~2 檔） | ✅ 引擎完成 |
+
+## 五、本機執行
 ```bash
 pip install -r requirements.txt
-cp .env.example .env               # 選填 FinMind token
-python -m scripts.update_data --days 30   # 抓資料 → data/stock.db
-python -m scripts.run_t11                 # 跑 T11 → reports/screener/ 下 CSV/MD
+python -m scripts.update_data --days 40     # 抓資料
+python -m scripts.daily_scan                # 每日掃描（推薦，含市場廣度）
+python -m scripts.run_t30                   # 短名單補基本面
+python -m scripts.run_backtest --stocks 2206,6669   # 回測測試
 ```
-T11 門檻都在 `src/config.py` 可調。
+門檻都在 `src/config.py`。排程說明見 README「每日自動掃描排程」。
 
-## 進度更新（2026-07-17）
-- ✅ **方案A（上櫃 TPEX）完成**：src/tpex_client.py，市場自適應（上市看投信/上櫃看外資）+ 加嚴護欄
-- ✅ **T16 抗跌強勢**：src/screeners/relative_strength.py
-- ✅ **T22 每日盤後自動掃描**：scripts/daily_scan.py（T11+T16+雙訊號交集，附本機排程說明）
-- 首份真實清單見 reports/2026-07-17_T11_法人吸貨清單.md（9上市+4上櫃）
+## 六、下一步 (TODO)
+1. **T23 完整回測**：需先**回補 1~2 年全市場歷史**（目前 DB 僅約 28 天）。
+   已驗證：單靠「法人連買」期望值接近 0，需疊加基本面/抗跌條件才有 edge。
+2. **回補歷史腳本**：TWSE/TPEX 逐日抓長區間（背景跑）。
+3. 其他 backlog（未做，可挑）：
+   - 籌碼：千張大戶持股、券商分點主力、借券賣出
+   - 基本面：月營收動能股(T12)、盈餘品質/地雷偵測、本益比河流圖
+   - 風控：ATR 停損/移動停利、部位試算、投組績效追蹤
+   - 事件：除權息/法說/營收行事曆提醒
+   - 詳見 `strategy/02_分析任務清單_backlog.md`
 
-## 下一步 (TODO，依序)
-1. ✅ **T30 短名單深掘 完成**：src/enrich.py + scripts/run_t30.py（FinMind 補月營收YoY/PER/PBR/殖利率）
-2. **T23 回測引擎**：⚠️ 需先**大量回補歷史**（TWSE/TPEX 逐日抓 1~2 年），目前 DB 僅約 28 天不足以回測
-3. 上櫃可再疊加主力券商分點（FinMind）交叉驗證
-4. 其他 backlog：見 `strategy/02_分析任務清單_backlog.md`
+## 七、重要提醒 / 已知限制
+- 三大法人 T86 傍晚才公布；上市常比上櫃晚一天（篩選器已自動對齊共同最後法人日）。
+- 目前只做上市+上櫃「普通股」（4 位數代號），排除 ETF/權證。
+- 每日輸出在 `reports/screener/`（gitignore）；里程碑報告在 `reports/`（入庫）。
+- Git 分支：`claude/taiwan-stock-analysis-asx-mww0s6`；Repo：ZDYoyoyo/stock。
 
-## 值得優先考慮的延伸題目（腦力激盪，未決定）
-- 籌碼：千張大戶持股比、券商分點主力、借券賣出/券資比、董監質押
-- 基本面：月營收動能(T12)、盈餘品質/地雷偵測、本益比河流圖
-- 大盤：市場廣度 breadth、產業輪動熱力圖（判斷「現在能不能進場」）
-- 風控：ATR 停損/移動停利、部位試算、投組績效追蹤（回撤/夏普）
-- 事件：除權息/法說/營收行事曆提醒、費半夜盤連動、台幣匯率
-
-## 付費 API 備忘（目前用免費即可，不急）
-- FinMind Sponsor / Sponsor Pro：更高額度+券商分點，月費數百元級（詳見官網）
-- 永豐 Shioaji：開戶免費、即時報價+下單、市佔近 5 成（要即時/下單時的首選）
-- 富果 Fugle：免費+付費即時行情
-- TEJ：法人級、偏貴（年費萬元起）；CMoney：付費籌碼資料
-
-## 環境備忘
-- Git 分支：`claude/taiwan-stock-analysis-asx-mww0s6`（所有開發都在這）
-- Repo：ZDYoyoyo/stock
+## 八、付費 API 備忘（目前免費即可）
+FinMind Sponsor（更高額度+分點，月費數百元）／永豐 Shioaji（開戶免費、即時+下單）／
+富果 Fugle（即時行情）／TEJ（法人級、偏貴）。

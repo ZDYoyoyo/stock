@@ -25,6 +25,7 @@ sys.path.insert(0, str(ROOT))
 from src.config import OUTPUT_DIR
 from src.screeners import institutional_accumulation as t11
 from src.screeners import relative_strength as t16
+from src.screeners import market_breadth as breadth
 
 
 def _update_data(days: int):
@@ -52,6 +53,8 @@ def main():
         _update_data(args.days)
 
     print("[2/3] 執行篩選 T11(法人吸貨) + T16(抗跌強勢) …")
+    b = breadth.run()
+    print("   " + breadth.summary_line(b))
     df11 = t11.run()
     df16 = t16.run()
 
@@ -61,7 +64,8 @@ def main():
     path = OUTPUT_DIR / f"{today}_daily_scan.md"
     with open(path, "w", encoding="utf-8") as f:
         f.write(f"# 每日盤後掃描 — {today}\n\n")
-        f.write("> ⚠️ 候選觀察名單，非投資建議。法人買≠一定漲；上櫃波動高，部位放小、嚴設停損。\n")
+        f.write("> ⚠️ 候選觀察名單，非投資建議。法人買≠一定漲；上櫃波動高，部位放小、嚴設停損。\n\n")
+        f.write(f"**{breadth.summary_line(b)}**\n")
         _section(f, "T11 法人默默吸貨（上市看投信／上櫃看外資）", df11,
                  ["stock_id", "name", "market", "investor", "close",
                   "price_gain_%", "consec_buy_days", "buy_ratio_%", "margin_chg_%", "score"])
