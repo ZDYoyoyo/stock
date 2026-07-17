@@ -16,7 +16,7 @@ class T11:
     ALLOWED_MISSING_DAYS = 2    # 容許窗口內偶發缺日（抓取失敗/資料未齊）
     MIN_CONSECUTIVE_BUY = 4     # 投信(或外資)最少連續買超天數
     MAX_PRICE_GAIN = 0.12       # 期間股價漲幅上限（還沒噴出）
-    MIN_PRICE_GAIN = -0.15      # 跌太多視為法人套牢/非吸貨，排除
+    MIN_PRICE_GAIN = -0.08      # 跌太多=接刀/套牢，排除（回測證實「抗跌」有效，故收緊）
     MIN_BUY_RATIO = 0.05        # 法人累計買超張數 / 期間總成交張數 下限（實測中位約4.4%）
     MAX_MARGIN_INCREASE = 0.15  # 融資餘額增幅上限（籌碼乾淨，散戶未追）
     MAX_ABOVE_MA20 = 0.15       # 收盤高於 20 日均線超過此比例＝已噴出，排除（單邊）

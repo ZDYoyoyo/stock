@@ -35,9 +35,11 @@ def _update(days: int):
                    cwd=str(ROOT), check=True)
 
 
-def _section(f, title, df, cols, n=15):
+def _section(f, title, df, cols, n=15, skipped=False):
     f.write(f"\n## {title}\n\n")
-    if df is None or df.empty:
+    if skipped:
+        f.write("（已略過 --skip-longterm；要看長期軌請跑 `python -m scripts.run_longterm`）\n")
+    elif df is None or df.empty:
         f.write("（今日無符合條件標的）\n")
     else:
         keep = [c for c in cols if c in df.columns]
@@ -93,7 +95,7 @@ def main():
 
         _section(f, "🟢 長期｜價值+成長+配息", dflt,
                  ["stock_id", "name", "產業", "close", "殖利率%", "PER",
-                  "ROE估%", "營收YoY%", "連配息年", "score"])
+                  "ROE估%", "營收YoY%", "連配息年", "score"], skipped=args.skip_longterm)
         _section(f, "🔴 當沖候選｜高波動+高流動（盤中盯，非即時訊號）", dfdt,
                  ["stock_id", "name", "market", "close", "今日振幅%", "均振幅%", "量能倍數"])
 
