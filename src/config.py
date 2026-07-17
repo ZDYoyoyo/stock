@@ -10,13 +10,14 @@ OUTPUT_DIR = ROOT / "reports" / "screener"
 # --- FinMind ---
 FINMIND_URL = "https://api.finmindtrade.com/api/v4/data"
 
-# --- T11 法人默默吸貨 篩選門檻 ---
+# --- T11 法人默默吸貨 篩選門檻（依 2026-07 真實全市場分佈校準）---
 class T11:
     LOOKBACK_DAYS = 10          # 觀察最近幾個交易日
-    MIN_CONSECUTIVE_BUY = 5     # 投信(或外資)最少連續買超天數
-    MAX_PRICE_GAIN = 0.10       # 期間股價漲幅上限（<10% 才算「還沒噴」）
-    MIN_BUY_RATIO = 0.15        # 法人累計買超張數 / 期間總成交張數 下限
-    MAX_MARGIN_INCREASE = 0.10  # 融資餘額增幅上限（籌碼乾淨，散戶未追）
-    MA_NEAR_PCT = 0.08          # 收盤距 20 日均線 ±% 內視為「均線附近打底」
+    MIN_CONSECUTIVE_BUY = 4     # 投信(或外資)最少連續買超天數
+    MAX_PRICE_GAIN = 0.12       # 期間股價漲幅上限（還沒噴出）
+    MIN_PRICE_GAIN = -0.15      # 跌太多視為法人套牢/非吸貨，排除
+    MIN_BUY_RATIO = 0.05        # 法人累計買超張數 / 期間總成交張數 下限（實測中位約4.4%）
+    MAX_MARGIN_INCREASE = 0.15  # 融資餘額增幅上限（籌碼乾淨，散戶未追）
+    MAX_ABOVE_MA20 = 0.15       # 收盤高於 20 日均線超過此比例＝已噴出，排除（單邊）
     MIN_AVG_VOLUME = 500        # 期間日均量下限（張），濾掉冷門股
     USE_INVESTOR = "Investment_Trust"  # 主看投信；可改 "Foreign_Investor"

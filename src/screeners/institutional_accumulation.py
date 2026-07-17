@@ -66,7 +66,7 @@ def run() -> pd.DataFrame:
         if first_close <= 0:
             continue
         price_gain = (last_close - first_close) / first_close
-        if price_gain >= T11.MAX_PRICE_GAIN or price_gain < -0.15:
+        if price_gain >= T11.MAX_PRICE_GAIN or price_gain < T11.MIN_PRICE_GAIN:
             continue  # 太漲(噴出) 或 崩跌(非吸貨) 都排除
 
         ig = inst[inst["stock_id"] == sid].sort_values("date")
@@ -88,11 +88,10 @@ def run() -> pd.DataFrame:
         if margin_chg > T11.MAX_MARGIN_INCREASE:
             continue
 
-        # 均線附近
+        # 均線：只排除「已明顯噴出（高於 MA20 太多）」，打底/回檔（低於 MA）保留
         ma = ma20.get(sid)
-        if ma and ma > 0:
-            if abs(last_close - ma) / ma > T11.MA_NEAR_PCT:
-                continue
+        if ma and ma > 0 and (last_close - ma) / ma > T11.MAX_ABOVE_MA20:
+            continue
 
         results.append({
             "stock_id": sid,
@@ -109,9 +108,9 @@ def run() -> pd.DataFrame:
     df = pd.DataFrame(results)
     if df.empty:
         return df
-    # 綜合評分：吃貨力道 + 連買天數，價格漲幅越低越好
+    # 綜合評分：吃貨力道(權重2) + 連買天數(權重3) + 相對強弱(抗跌/上漲加分)
     df["score"] = (df["buy_ratio_%"] * 2 + df["consec_buy_days"] * 3
-                   - df["price_gain_%"])
+                   + df["price_gain_%"] * 1).round(2)
     return df.sort_values("score", ascending=False).reset_index(drop=True)
 
 
