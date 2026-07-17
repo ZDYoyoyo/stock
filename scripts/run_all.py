@@ -46,10 +46,30 @@ def _section(f, title, df, cols, n=15, skipped=False):
         f.write(df[keep].head(n).to_markdown(index=False) + "\n")
 
 
+def _summary(today, reg, glob, df11, df16, inter, dflt):
+    """給推播用的精簡摘要（純文字，含 HTML 粗體）。"""
+    lines = [f"<b>📈 台股每日報告 {today}</b>",
+             f"🚦 {regime_mod.summary_line(reg)}",
+             gm.sox_signal(glob), ""]
+    if inter:
+        lines.append("⭐ <b>雙訊號交集(法人買且抗跌)</b>：" + "、".join(inter))
+    if not df11.empty:
+        top = df11.head(3)
+        lines.append("🟡 波段T11 前3：" +
+                     "、".join(f"{r.stock_id} {r.name}" for r in top.itertuples()))
+    if dflt is not None and not dflt.empty:
+        top = dflt.head(3)
+        lines.append("🟢 長期 前3：" +
+                     "、".join(f"{r.stock_id} {r.name}" for r in top.itertuples()))
+    lines.append("\n完整報告見 reports/screener/（.html 用瀏覽器開）")
+    return "\n".join(x for x in lines if x is not None)
+
+
 def main():
     ap = argparse.ArgumentParser()
     ap.add_argument("--no-update", action="store_true")
     ap.add_argument("--skip-longterm", action="store_true")
+    ap.add_argument("--notify", action="store_true", help="把摘要推播到手機（Telegram/Email，需設 .env）")
     ap.add_argument("--days", type=int, default=12)
     args = ap.parse_args()
 
@@ -127,6 +147,12 @@ def main():
     print(f"   HTML（瀏覽器開、表格對齊）→ {html_path}")
     print(f"   波段T11 {len(df11)} / T16 {len(df16)} ｜ 當沖 {len(dfdt)}"
           + (f" ｜ 長期 {len(dflt)}" if dflt is not None else " ｜ 長期(略過)"))
+
+    if args.notify:
+        from src.notify import notify
+        ok, ch, detail = notify(_summary(today, reg, glob, df11, df16, inter, dflt),
+                                subject=f"台股每日報告 {today}", file_path=str(html_path))
+        print(f"   📲 推播（{ch}）：{'成功' if ok else '失敗 - ' + detail}")
 
 
 if __name__ == "__main__":
