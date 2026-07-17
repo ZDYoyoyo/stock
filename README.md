@@ -8,6 +8,41 @@
 
 ---
 
+## 🚀 從零開始：把專案拉下來到跑出報告（Windows）
+
+**第一次安裝（只做一次）**
+```bat
+:: 0) 事前：先裝好 Python 3.10+（python.org，安裝時勾 Add to PATH）與 Git（git-scm.com）
+
+:: 1) 把專案抓下來（clone 到你想放的資料夾，例如 C:\Users\你）
+git clone -b claude/taiwan-stock-analysis-asx-mww0s6 https://github.com/ZDYoyoyo/stock.git
+cd stock
+
+:: 2) 讓命令列支援中文/emoji（每開新視窗都要跑一次）
+chcp 65001
+
+:: 3) 安裝相依套件
+pip install -r requirements.txt
+```
+
+**每天使用（盤後傍晚跑）**
+```bat
+cd stock
+chcp 65001
+git pull origin claude/taiwan-stock-analysis-asx-mww0s6   :: 拉最新程式（若有更新）
+python -m scripts.run_all                                 :: 一鍵跑：環境+三軌
+```
+跑完會產生兩份報告在 `reports\screener\`：
+- `YYYY-MM-DD_run_all.md`（純文字，GitHub/VSCode 預覽最清楚）
+- `YYYY-MM-DD_run_all.html`（**用瀏覽器打開，表格對齊、紅綠燈上色**）
+
+> 💡 用記事本看 .md 表格會歪，是中文字雙寬所致；請用 **.html（瀏覽器）** 或
+> VSCode 按 `Ctrl+Shift+V` 預覽 .md。
+
+**功能總說明**：見 `docs/功能說明.md`（T11/T16 等所有代號的白話解釋）。
+
+---
+
 ## 目錄結構
 
 ```

@@ -22,7 +22,7 @@ ROOT = Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(ROOT))
 
 from src.config import OUTPUT_DIR
-from src import regime as regime_mod, global_market as gm
+from src import regime as regime_mod, global_market as gm, report_html
 from src.screeners import institutional_accumulation as t11
 from src.screeners import relative_strength as t16
 from src.screeners import day_trade_candidates as daytrade
@@ -99,7 +99,32 @@ def main():
         _section(f, "🔴 當沖候選｜高波動+高流動（盤中盯，非即時訊號）", dfdt,
                  ["stock_id", "name", "market", "close", "今日振幅%", "均振幅%", "量能倍數"])
 
+    # 同步輸出 HTML（表格永遠對齊、紅漲綠跌上色）
+    both = (set(df11["stock_id"]) & set(df16["stock_id"])) if not df11.empty and not df16.empty else set()
+    nm = df11.set_index("stock_id")["name"].to_dict() if not df11.empty else {}
+    blocks = [
+        {"title": "🟡 波段｜T11 法人吸貨（上市投信/上櫃外資）", "df": df11,
+         "cols": ["stock_id", "name", "market", "investor", "close", "price_gain_%",
+                  "consec_buy_days", "buy_ratio_%", "score"],
+         "signed": ["price_gain_%"], "after_intersection": True},
+        {"title": "🟡 波段｜T16 抗跌強勢", "df": df16,
+         "cols": ["stock_id", "name", "market", "return_%", "vs_market_%"],
+         "signed": ["return_%", "vs_market_%"]},
+        {"title": "🟢 長期｜價值+成長+配息", "df": dflt, "skipped": args.skip_longterm,
+         "cols": ["stock_id", "name", "產業", "close", "殖利率%", "PER", "ROE估%",
+                  "營收YoY%", "連配息年", "score"], "signed": ["營收YoY%"]},
+        {"title": "🔴 當沖候選｜高波動+高流動（盤中盯，非即時訊號）", "df": dfdt,
+         "cols": ["stock_id", "name", "market", "close", "今日振幅%", "均振幅%", "量能倍數"],
+         "signed": []},
+    ]
+    inter = [f"{s} {nm.get(s,'')}" for s in both]
+    html = report_html.build(today, reg, gm.summary_lines(glob), gm.sox_signal(glob),
+                             blocks, intersection=inter)
+    html_path = OUTPUT_DIR / f"{today}_run_all.html"
+    html_path.write_text(html, encoding="utf-8")
+
     print(f"\n✅ 整合報告 → {path}")
+    print(f"   HTML（瀏覽器開、表格對齊）→ {html_path}")
     print(f"   波段T11 {len(df11)} / T16 {len(df16)} ｜ 當沖 {len(dfdt)}"
           + (f" ｜ 長期 {len(dflt)}" if dflt is not None else " ｜ 長期(略過)"))
 
