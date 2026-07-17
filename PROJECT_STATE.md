@@ -11,8 +11,8 @@
 ### 三軌目標（使用者要的）
 1. **長期持有軌**：價值+成長+配息，持有數月~數年。✅ v1 完成（long_term_value.py）。
    → 散戶最有真 edge、免費 EOD 資料充足。
-2. **短期波段軌**：籌碼(T11)+相對強弱(T16)，持有天~數週。✅ 選股完成，缺風控/擇時。
-   → 回測顯示 edge 薄（多為 beta），須配風控+多空過濾才實用。
+2. **短期波段軌**：籌碼(T11)+相對強弱(T16)，持有天~數週。✅ 選股+風控+擇時完成。
+   → 回測顯示 edge 薄（多為 beta），已補：多空紅綠燈(regime)、全球市場(費半)、ATR停損/部位試算。
 3. **當沖軌**：⚠️ **尚未做，且需另接券商即時 API**（Shioaji/Fugle）盤中跑。
    → 現有免費資料是盤後 EOD，做不了真正盤中當沖；統計上勝率最低，最後再做。
 
@@ -32,16 +32,22 @@ src/
   twse_client.py       # 上市全市場（MI_INDEX/T86/MI_MARGN）
   tpex_client.py       # 上櫃全市場（欄位經 FinMind 交叉驗證）
   finmind_client.py    # FinMind 逐檔
-  enrich.py            # T30 基本面深掘
+  enrich.py            # T30 基本面深掘 + 連續配息年數
   backtest.py          # T23 回測引擎
+  regime.py            # 多空紅綠燈（建議部位水位）
+  global_market.py     # 全球市場（費半/那指/VIX/台幣，Yahoo）
+  risk.py              # ATR 停損 + 部位試算
   screeners/
-    institutional_accumulation.py  # T11 法人吸貨
-    relative_strength.py           # T16 抗跌強勢
-    market_breadth.py              # 市場廣度（能否進場）
+    institutional_accumulation.py  # T11 法人吸貨（波段）
+    relative_strength.py           # T16 抗跌強勢（波段）
+    market_breadth.py              # 市場廣度
+    long_term_value.py             # 長期：價值+成長+配息
 scripts/
   update_data.py       # 抓資料進 DB（--market all/twse/tpex, --days N）
-  daily_scan.py        # T22 每日盤後：廣度 + T11 + T16 + 雙訊號交集
-  run_t11.py / run_t30.py / run_backtest.py
+  daily_scan.py        # 每日盤後：環境紅綠燈+全球 + T11 + T16 + 交集
+  run_longterm.py      # 長期軌選股
+  risk_calc.py         # 風控試算（停損/停利/張數）
+  run_t11.py / run_t30.py / run_backtest.py / run_validation.py / run_edge_check.py
 ```
 
 ## 四、模組完成度
