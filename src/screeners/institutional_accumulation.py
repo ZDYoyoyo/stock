@@ -51,6 +51,7 @@ def run() -> pd.DataFrame:
 
     ma20 = _ma20_by_stock(recent_dates)
     name_map = info.set_index("stock_id")["stock_name"].to_dict()
+    market_map = info.set_index("stock_id")["type"].to_dict()
 
     results = []
     for sid, pg in price.groupby("stock_id"):
@@ -58,8 +59,10 @@ def run() -> pd.DataFrame:
         if len(pg) < T11.LOOKBACK_DAYS:
             continue
 
+        is_tpex = market_map.get(sid) == "tpex"
+        min_vol = T11.MIN_AVG_VOLUME_TPEX if is_tpex else T11.MIN_AVG_VOLUME
         avg_vol = pg["volume"].mean()
-        if avg_vol < T11.MIN_AVG_VOLUME:
+        if avg_vol < min_vol:
             continue
 
         first_close, last_close = pg["close"].iloc[0], pg["close"].iloc[-1]
@@ -96,6 +99,7 @@ def run() -> pd.DataFrame:
         results.append({
             "stock_id": sid,
             "name": name_map.get(sid, ""),
+            "market": "上櫃" if is_tpex else "上市",
             "close": round(last_close, 2),
             "price_gain_%": round(price_gain * 100, 2),
             "consec_buy_days": consec,

@@ -19,5 +19,6 @@ class T11:
     MIN_BUY_RATIO = 0.05        # 法人累計買超張數 / 期間總成交張數 下限（實測中位約4.4%）
     MAX_MARGIN_INCREASE = 0.15  # 融資餘額增幅上限（籌碼乾淨，散戶未追）
     MAX_ABOVE_MA20 = 0.15       # 收盤高於 20 日均線超過此比例＝已噴出，排除（單邊）
-    MIN_AVG_VOLUME = 500        # 期間日均量下限（張），濾掉冷門股
+    MIN_AVG_VOLUME = 500        # 上市日均量下限（張）
+    MIN_AVG_VOLUME_TPEX = 1000  # 上櫃加嚴：流動性差、易控盤 → 門檻拉高
     USE_INVESTOR = "Investment_Trust"  # 主看投信；可改 "Foreign_Investor"
