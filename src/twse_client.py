@@ -63,6 +63,31 @@ def price(date: str) -> list[dict]:
     return []
 
 
+def valuation(date: str) -> list[dict]:
+    """全市場估值：回傳 [{stock_id,name,close,yield,per,pbr}]（BWIBBU_d，免費）。"""
+    d = _get("afterTrading/BWIBBU_d", {"date": date, "selectType": "ALL", "response": "json"})
+    if d.get("stat") != "OK":
+        return []
+    fields = d.get("fields") or []
+    try:
+        i_sid, i_name = fields.index("證券代號"), fields.index("證券名稱")
+        i_close, i_yield = fields.index("收盤價"), fields.index("殖利率(%)")
+        i_per, i_pbr = fields.index("本益比"), fields.index("股價淨值比")
+    except ValueError:
+        return []
+    out = []
+    for row in d.get("data", []):
+        sid = row[i_sid].strip()
+        if not _STOCK_RE.match(sid):
+            continue
+        out.append({
+            "stock_id": sid, "name": row[i_name].strip(),
+            "close": _num(row[i_close]), "yield": _num(row[i_yield]),
+            "per": _num(row[i_per]), "pbr": _num(row[i_pbr]),
+        })
+    return out
+
+
 def stock_names(date: str) -> dict[str, str]:
     """回傳 {stock_id: 中文名}（取自當日 MI_INDEX）。"""
     d = _get("afterTrading/MI_INDEX", {"date": date, "type": "ALLBUT0999", "response": "json"})

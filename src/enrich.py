@@ -41,6 +41,26 @@ def _valuation(sid: str):
     return d.get("PER"), d.get("PBR"), d.get("dividend_yield")
 
 
+def dividend_years(sid: str) -> int:
+    """回傳最近『連續配發現金股利』的年數（含盈餘+公積現金）。"""
+    data = fetch("TaiwanStockDividend", start_date="2010-01-01", data_id=sid)
+    if not data:
+        return 0
+    by_year = {}
+    for d in data:
+        y = d.get("year")
+        cash = (d.get("CashEarningsDistribution") or 0) + (d.get("CashStatutorySurplus") or 0)
+        by_year[y] = by_year.get(y, 0) + cash
+    years = sorted(by_year.keys())
+    streak = 0
+    for y in reversed(years):
+        if by_year[y] > 0:
+            streak += 1
+        else:
+            break
+    return streak
+
+
 def _note(yoy, per):
     parts = []
     if yoy is None:

@@ -26,6 +26,14 @@ class T11:
     TPEX_USE_FOREIGN = True     # 上櫃改看外資（投信少碰上櫃，外資才是主要法人力量）
 
 
+# --- 長期持有軌：價值+成長+配息 門檻 ---
+class LONGTERM:
+    MIN_YIELD = 3.0    # 現金殖利率下限(%)
+    MAX_PER = 20.0     # 本益比上限（>0 排除虧損）
+    MAX_PBR = 3.0      # 股價淨值比上限
+    DEEP_DIVE_N = 40   # 粗篩後進 FinMind 深掘的檔數上限
+
+
 # --- T16 相對強弱／抗跌強勢股 門檻 ---
 class T16:
     LOOKBACK_DAYS = 10
