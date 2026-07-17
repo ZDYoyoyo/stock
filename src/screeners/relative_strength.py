@@ -48,6 +48,8 @@ def run() -> pd.DataFrame:
         rs = r - market_ret
         if r < T16.MIN_RETURN:          # 至少要正報酬(抗跌但續跌者不取)
             continue
+        if r > T16.MAX_RETURN:          # 漲太多=過度延伸/噴出，不宜追，排除
+            continue
         rows.append({
             "stock_id": sid,
             "name": name_map.get(sid, ""),

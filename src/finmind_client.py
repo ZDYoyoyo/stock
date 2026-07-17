@@ -28,8 +28,15 @@ def fetch(dataset: str, start_date: str, end_date: str | None = None,
         params["token"] = _TOKEN
 
     for attempt in range(retries):
-        resp = requests.get(FINMIND_URL, params=params, timeout=60)
-        if resp.status_code == 402 or resp.status_code == 429:
+        try:
+            resp = requests.get(FINMIND_URL, params=params, timeout=60)
+        except requests.RequestException as e:
+            # 連線中斷/逾時（如 Connection reset by peer）→ 退避重試
+            wait = 5 * (attempt + 1)
+            print(f"  [FinMind] 連線問題({type(e).__name__})，等 {wait}s 後重試…")
+            time.sleep(wait)
+            continue
+        if resp.status_code in (402, 429):
             # 額度用盡 / 觸發限流 → 退避
             wait = 60 * (attempt + 1)
             print(f"  [FinMind] 限流/額度({resp.status_code})，等 {wait}s 後重試…")

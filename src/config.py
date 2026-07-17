@@ -34,6 +34,7 @@ class LONGTERM:
     MIN_DIVIDEND_YEARS = 5     # 硬門檻：至少連續配發現金股利年數
     MIN_ROE_EST = 5.0          # 硬門檻：估算 ROE(=PBR/PER) 下限(%)，濾獲利能力太弱者
     DEEP_DIVE_N = 40           # 粗篩後進 FinMind 深掘的檔數上限
+    MAX_LUMPY = 3              # 營建等認列不規律產業，最終清單最多保留幾檔（避免洗版）
     # 營收認列不規律的產業（如營建：完工才認列，YoY 爆高爆低失真）
     # → 評分時 YoY 貢獻歸零，並在輸出標註產業
     LUMPY_REVENUE_INDUSTRIES = ("建材營造",)
@@ -52,5 +53,6 @@ class DAYTRADE:
 class T16:
     LOOKBACK_DAYS = 10
     MIN_RETURN = 0.0            # 至少正報酬（抗跌但續跌者不取）
+    MAX_RETURN = 0.30          # 漲幅上限(30%)：超過視為過度延伸/噴出，不宜追，排除
     MIN_AVG_VOLUME = 500        # 上市日均量下限（張）
     MIN_AVG_VOLUME_TPEX = 1000  # 上櫃加嚴

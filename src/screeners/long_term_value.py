@@ -100,7 +100,14 @@ def run(verbose: bool = True) -> pd.DataFrame:
     df["score"] = (df["殖利率%"] * 3 + (100 / df["PER"].clip(lower=1))
                    + df["ROE估%"] * 1.5 + yoy_score + eps_score
                    + df["連配息年"].clip(upper=20) * 1.5).round(2)
+    df = df.sort_values("score", ascending=False).reset_index(drop=True)
+
+    # 營建等認列不規律產業：最終清單最多保留 MAX_LUMPY 檔（依分數留最強者），避免洗版
+    lumpy = df[df["_lumpy"]].head(L.MAX_LUMPY)
+    non_lumpy = df[~df["_lumpy"]]
+    df = pd.concat([non_lumpy, lumpy]).sort_values("score", ascending=False).reset_index(drop=True)
+
     # 營建等產業標註
     df["產業"] = df.apply(lambda r: f"⚠️{r['產業']}" if r["_lumpy"] else r["產業"], axis=1)
     df = df.drop(columns=["_lumpy"])
-    return df.sort_values("score", ascending=False).reset_index(drop=True)
+    return df
