@@ -55,6 +55,15 @@ python -m scripts.run_t30      # 短名單基本面深掘
 python -m scripts.risk_calc --stock 2206 --account 1000000 --risk 1.5  # 風控試算
 ```
 
+## 盤中即時監控（本機、盤中執行；TWSE MIS 免開戶）
+
+```bash
+# 盤中(09:00~13:30)盯一籃股票並警示（接近漲跌停/急拉急殺/突破當日高低）
+python -m scripts.monitor_intraday --stocks 2330,2454,6669
+python -m scripts.monitor_intraday --from-daytrade 10   # 用當沖候選前10檔
+```
+⚠️ MIS 約 20 秒延遲，適合監控/警示非搶帽子；本工具只監控不下單，進出自行判斷嚴設停損。
+
 > 篩選門檻（連買天數、漲幅上限、吃貨比例…）都在 `src/config.py`，可自行調鬆/調緊。
 
 ## ⏰ 每日自動掃描排程（本機）
