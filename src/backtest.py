@@ -49,6 +49,74 @@ def _round_trip_return(entry_open: float, exit_close: float) -> float:
     return net
 
 
+def _revenue_yoy_lookup(sid: str, start: str):
+    """回傳函式 f(date)->最新可得月營收YoY(%)；無資料回 None。以 create_time 當可得日。"""
+    data = fetch("TaiwanStockMonthRevenue", start_date="2021-01-01", data_id=sid)
+    if not data:
+        return lambda d: None
+    rev = {(x["revenue_year"], x["revenue_month"]): x["revenue"] for x in data}
+    avail = []  # (可得日, (year,month))
+    for x in data:
+        a = x.get("create_time") or x.get("date")
+        avail.append((str(a)[:10], (x["revenue_year"], x["revenue_month"])))
+    avail.sort()
+
+    def f(date_str):
+        latest = None
+        for a, ym in avail:
+            if a <= date_str:
+                latest = ym
+            else:
+                break
+        if not latest:
+            return None
+        y, m = latest
+        prev = rev.get((y - 1, m))
+        cur = rev.get((y, m))
+        if prev and prev > 0 and cur is not None:
+            return (cur - prev) / prev * 100
+        return None
+    return f
+
+
+def signal_trades(sid: str, investor: str = "trust", consec_k: int = 4,
+                  hold_days: int = 10, mom_days: int = 10,
+                  start: str = "2023-01-01") -> pd.DataFrame:
+    """產生每個「法人連買>=K」訊號的交易，附帶抗跌/營收旗標與含成本報酬。"""
+    df = _load_stock(sid, start)
+    if df.empty or len(df) < hold_days + mom_days + consec_k + 2:
+        return pd.DataFrame()
+    yoy_of = _revenue_yoy_lookup(sid, start)
+
+    col = "trust_net" if investor == "trust" else "foreign_net"
+    net = df[col].tolist()
+    opens, closes, dates = df["open"].tolist(), df["close"].tolist(), df["date"].tolist()
+
+    consec = [0] * len(net)
+    for i in range(len(net)):
+        consec[i] = consec[i - 1] + 1 if (net[i] > 0 and i > 0 and net[i - 1] > 0) \
+            else (1 if net[i] > 0 else 0)
+
+    rows, last_exit = [], -1
+    for i in range(mom_days, len(net) - hold_days - 1):
+        if consec[i] < consec_k or i <= last_exit:   # 同檔不重疊持有
+            continue
+        entry, exit_ = opens[i + 1], closes[i + 1 + hold_days]
+        if entry <= 0 or closes[i - mom_days] <= 0:
+            continue
+        momentum = (closes[i] - closes[i - mom_days]) / closes[i - mom_days]
+        yoy = yoy_of(dates[i])
+        rows.append({
+            "stock_id": sid, "date": dates[i],
+            "ret": _round_trip_return(entry, exit_),
+            "mom_ok": momentum > 0,                 # 抗跌/正動能
+            "rev_ok": (yoy is not None and yoy >= 0),  # 營收不衰退
+            "rev_known": yoy is not None,
+        })
+        last_exit = i + 1 + hold_days
+    return pd.DataFrame(rows)
+
+
 def backtest(sid: str, investor: str = "trust", consec_k: int = 4,
              hold_days: int = 10, start: str = "2023-01-01") -> dict:
     df = _load_stock(sid, start)
