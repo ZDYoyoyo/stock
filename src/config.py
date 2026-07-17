@@ -39,6 +39,15 @@ class LONGTERM:
     LUMPY_REVENUE_INDUSTRIES = ("建材營造",)
 
 
+# --- 當沖候選（EOD 掃描，非即時）門檻 ---
+class DAYTRADE:
+    LOOKBACK_DAYS = 20
+    MIN_AVG_VOLUME = 3000      # 上市日均量下限(張)：當沖需高流動性
+    MIN_AVG_VOLUME_TPEX = 2000 # 上櫃
+    MIN_AVG_AMPLITUDE = 3.0    # 平均日振幅下限(%)：要夠波動才有價差可做
+    VOL_SURGE = 1.5            # 當日量 / 20日均量 倍數（爆量門檻，用於加分非硬篩）
+
+
 # --- T16 相對強弱／抗跌強勢股 門檻 ---
 class T16:
     LOOKBACK_DAYS = 10

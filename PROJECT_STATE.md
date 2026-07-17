@@ -16,8 +16,11 @@
    → 注意：FinMind 免費額度會觸發 402 限流（client 已自動等待重試），深掘檔數勿調太大。
 2. **短期波段軌**：籌碼(T11)+相對強弱(T16)，持有天~數週。✅ 選股+風控+擇時完成。
    → 回測顯示 edge 薄（多為 beta），已補：多空紅綠燈(regime)、全球市場(費半)、ATR停損/部位試算。
-3. **當沖軌**：⚠️ **尚未做，且需另接券商即時 API**（Shioaji/Fugle）盤中跑。
-   → 現有免費資料是盤後 EOD，做不了真正盤中當沖；統計上勝率最低，最後再做。
+3. **當沖軌**：✅ **EOD 候選掃描完成**（day_trade_candidates.py，高波動+高流動+爆量）。
+   → 盤後縮小盤中要盯的清單，使用者盤中人工判斷。
+   → 即時/自動化仍需接資料+下單：免費免開戶 **TWSE MIS**（~20秒延遲，已測通，
+   mis.twse.com.tw/stock/api/getStockInfo.jsp）做監控；**自動下單**必須透過券商 API
+   （永豐 Shioaji / 富果 Fugle / 元大…任一家，非限永豐）。使用者決定後再接。
 
 ## 二、已拍板的決策
 1. **資料源（免費）**
@@ -45,6 +48,7 @@ src/
     relative_strength.py           # T16 抗跌強勢（波段）
     market_breadth.py              # 市場廣度
     long_term_value.py             # 長期：價值+成長+配息
+    day_trade_candidates.py        # 當沖候選（EOD，高波動+高流動）
 scripts/
   update_data.py       # 抓資料進 DB（--market all/twse/tpex, --days N）
   daily_scan.py        # 每日盤後：環境紅綠燈+全球 + T11 + T16 + 交集
