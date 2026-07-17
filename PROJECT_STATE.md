@@ -8,11 +8,13 @@
 **每日盤後掃描**與**投資決策框架**。⚠️ 研究用途，非投資建議。
 
 ## 已拍板的決策
-1. **資料源：先用免費** → FinMind（免費註冊 token 600 次/hr，足夠每日掃描）
+1. **資料源：免費** → **改用 TWSE 官方全市場端點**（MI_INDEX/T86/MI_MARGN，免費無 key、可批次）。
+   ⚠️ FinMind 免費版**不支援全市場批次**（回 "level is free"），只能逐檔查，故批次改走 TWSE。
+   FinMind client 仍保留（`src/finmind_client.py`）供日後逐檔細查。
 2. **語言：Python**（純腳本，暫不做網頁 dashboard）
-3. **先做 T11**（法人默默吸貨篩選器）✅ 已完成
-4. **執行環境：本機跑** 或 新開「網路寬鬆」的 environment；
-   ⚠️ **雲端 session 的網路政策會封鎖 TWSE/Yahoo/FinMind（403），無法在雲端抓資料**。
+3. **T11 法人吸貨篩選器 ✅ 已完成，並已用真實資料產出首份清單**（見 reports/2026-07-17_T11…）。
+4. **執行環境**：本 session 網路**已放行**（可直接抓 TWSE），亦可本機跑。
+   目前僅上市(TWSE)，**未含上櫃(TPEX)**。
 
 ## 已完成並 commit（分支 claude/taiwan-stock-analysis-asx-mww0s6）
 - `reports/2026-07-17_3711_日月光投控.md` — 日月光當日跌停股災分析（大盤級股災、非個股利空、7/23 財報為關鍵）
