@@ -61,6 +61,35 @@ def dividend_years(sid: str) -> int:
     return streak
 
 
+def eps_ttm_growth(sid: str):
+    """回傳 (近四季EPS合計, 近四季EPS年增%)；無資料回 (None, None)。
+
+    來源：FinMind 綜合損益表（免費），type='EPS' 逐季。
+    """
+    data = fetch("TaiwanStockFinancialStatements", start_date="2023-01-01", data_id=sid)
+    eps = sorted([(d["date"], d["value"]) for d in data if d.get("type") == "EPS"])
+    if len(eps) < 4:
+        return None, None
+    ttm = sum(v for _, v in eps[-4:])
+    if len(eps) >= 8:
+        prev = sum(v for _, v in eps[-8:-4])
+        growth = round((ttm - prev) / abs(prev) * 100, 1) if prev else None
+    else:
+        growth = None
+    return round(ttm, 2), growth
+
+
+def industry_map() -> dict:
+    """回傳 {stock_id: 產業別}（FinMind TaiwanStockInfo，一次 call 全市場）。"""
+    data = fetch("TaiwanStockInfo", start_date="2020-01-01")
+    out = {}
+    for d in data:
+        sid = d.get("stock_id")
+        if sid and sid not in out:
+            out[sid] = d.get("industry_category", "")
+    return out
+
+
 def _note(yoy, per):
     parts = []
     if yoy is None:
