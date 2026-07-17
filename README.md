@@ -12,13 +12,39 @@
 
 ```
 stock/
-├── README.md                       # 本檔（專案總覽 / 索引）
+├── README.md
+├── requirements.txt                # 相依套件（免費資料源）
+├── .env.example                    # FinMind token（免費，選填）
 ├── reports/                        # 個股 / 大盤分析存檔（依日期）
 │   └── 2026-07-17_3711_日月光投控.md
-└── strategy/
-    ├── 01_投資框架_短中長期.md      # 短 / 中 / 長期操作框架
-    └── 02_分析任務清單_backlog.md    # 要建的篩選器 / 指標 / 資料管線
+├── strategy/
+│   ├── 01_投資框架_短中長期.md      # 短 / 中 / 長期操作框架
+│   └── 02_分析任務清單_backlog.md    # 要建的篩選器 / 指標 / 資料管線
+├── src/
+│   ├── config.py                   # 設定與 T11 篩選門檻
+│   ├── db.py                       # SQLite 儲存層
+│   ├── finmind_client.py           # FinMind 免費 API client
+│   └── screeners/
+│       └── institutional_accumulation.py   # T11 法人默默吸貨
+└── scripts/
+    ├── update_data.py              # 抓資料進 SQLite（每日盤後跑）
+    └── run_t11.py                  # 執行 T11 篩選、輸出清單
 ```
+
+## 🚀 本機快速開始
+
+```bash
+pip install -r requirements.txt
+cp .env.example .env          # 選填 FinMind token（免費註冊額度較高）
+
+# 1) 抓最近 30 天全市場資料 → data/stock.db
+python -m scripts.update_data --days 30
+
+# 2) 跑 T11 法人默默吸貨篩選 → 終端機 + reports/screener/ 下 CSV/MD
+python -m scripts.run_t11
+```
+
+> 篩選門檻（連買天數、漲幅上限、吃貨比例…）都在 `src/config.py`，可自行調鬆/調緊。
 
 ## 使用方式
 
