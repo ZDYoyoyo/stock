@@ -42,9 +42,27 @@ python -m scripts.update_data --days 30
 
 # 2) 跑 T11 法人默默吸貨篩選 → 終端機 + reports/screener/ 下 CSV/MD
 python -m scripts.run_t11
+
+# 3) 每日盤後一鍵掃描（增量更新 + T11 + T16 抗跌強勢 + 雙訊號交集）
+python -m scripts.daily_scan
 ```
 
 > 篩選門檻（連買天數、漲幅上限、吃貨比例…）都在 `src/config.py`，可自行調鬆/調緊。
+
+## ⏰ 每日自動掃描排程（本機）
+
+`daily_scan` 建議在交易日傍晚（三大法人 T86 公布後，約 18:00~20:00）跑：
+
+```bash
+# Linux / macOS：週一~五 19:00
+0 19 * * 1-5 cd /path/to/stock && /usr/bin/python3 -m scripts.daily_scan >> logs/scan.log 2>&1
+```
+Windows 用「工作排程器」設每日 19:00 觸發 `python -m scripts.daily_scan`（起始位置設專案資料夾）。
+
+## 資料源說明
+- **批次全市場**：TWSE（上市）＋ TPEX（上櫃）官方端點，免費、無需金鑰。
+- **市場自適應**：上市看投信、上櫃看外資（投信極少參與上櫃）；上櫃套用更嚴的量能門檻。
+- FinMind（`src/finmind_client.py`）保留供日後對短名單「逐檔深掘」（月營收/EPS/PER/分點）。
 
 ## 使用方式
 

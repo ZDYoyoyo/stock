@@ -24,3 +24,11 @@ class T11:
     MIN_AVG_VOLUME_TPEX = 1000  # 上櫃加嚴：流動性差、易控盤 → 門檻拉高
     USE_INVESTOR = "Investment_Trust"  # 上市主看投信；可改 "Foreign_Investor"
     TPEX_USE_FOREIGN = True     # 上櫃改看外資（投信少碰上櫃，外資才是主要法人力量）
+
+
+# --- T16 相對強弱／抗跌強勢股 門檻 ---
+class T16:
+    LOOKBACK_DAYS = 10
+    MIN_RETURN = 0.0            # 至少正報酬（抗跌但續跌者不取）
+    MIN_AVG_VOLUME = 500        # 上市日均量下限（張）
+    MIN_AVG_VOLUME_TPEX = 1000  # 上櫃加嚴

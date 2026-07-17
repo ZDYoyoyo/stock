@@ -31,10 +31,16 @@ python -m scripts.run_t11                 # 跑 T11 → reports/screener/ 下 CS
 ```
 T11 門檻都在 `src/config.py` 可調。
 
+## 進度更新（2026-07-17）
+- ✅ **方案A（上櫃 TPEX）完成**：src/tpex_client.py，市場自適應（上市看投信/上櫃看外資）+ 加嚴護欄
+- ✅ **T16 抗跌強勢**：src/screeners/relative_strength.py
+- ✅ **T22 每日盤後自動掃描**：scripts/daily_scan.py（T11+T16+雙訊號交集，附本機排程說明）
+- 首份真實清單見 reports/2026-07-17_T11_法人吸貨清單.md（9上市+4上櫃）
+
 ## 下一步 (TODO，依序)
-1. **跑第一份真實 T11 清單**（本機 or 新開網路 environment）→ 一起微調 config.py 門檻
-2. **T22 每日盤後自動掃描**骨架（併入 T16 抗跌強勢股）
-3. **T23 回測引擎**（含手續費 0.1425%、證交稅 0.3%）驗證勝率後才實際投錢
+1. **T30 短名單深掘**：對 T11/T16 短名單用 FinMind 逐檔補月營收/EPS/PER 二次驗證
+2. **T23 回測引擎**（含手續費 0.1425%、證交稅 0.3%）驗證勝率後才實際投錢
+3. 上櫃可再疊加主力券商分點（FinMind）交叉驗證
 4. 其他 backlog：見 `strategy/02_分析任務清單_backlog.md`
 
 ## 值得優先考慮的延伸題目（腦力激盪，未決定）
