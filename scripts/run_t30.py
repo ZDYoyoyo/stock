@@ -25,8 +25,19 @@ def main():
     fund = enrich(df["stock_id"].tolist())
     merged = df.merge(fund, on="stock_id", how="left")
 
+    # 併入千張大戶籌碼（需先跑 update_holders；沒資料則欄位留空）
+    import pandas as pd
+    from src.enrich import big_holder_info
+    bh = pd.DataFrame([{"stock_id": s, **big_holder_info(s)} for s in df["stock_id"]])
+    if not bh.empty and "千張大戶%" in bh.columns:
+        merged = merged.merge(bh, on="stock_id", how="left")
+
     cols = ["stock_id", "name", "market", "investor", "close", "score",
-            "營收月", "營收YoY%", "近3月YoY均%", "PER", "PBR", "殖利率%", "基本面評註"]
+            "營收YoY%", "PER", "殖利率%"]
+    for extra in ("千張大戶%", "千張週增減"):
+        if extra in merged.columns:
+            cols.append(extra)
+    cols.append("基本面評註")
     view = merged[cols]
     print("\n=== T11 + 基本面 ===")
     print(view.to_string(index=False))

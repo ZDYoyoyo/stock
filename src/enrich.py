@@ -79,6 +79,27 @@ def eps_ttm_growth(sid: str):
     return round(ttm, 2), growth
 
 
+def big_holder_info(sid: str) -> dict:
+    """從 DB 讀千張大戶最新比例與週變化。需先跑 update_holders。"""
+    from .db import connect
+    import pandas as pd
+    try:
+        with connect() as conn:
+            df = pd.read_sql(
+                "SELECT date, pct_1000, pct_400 FROM big_holders WHERE stock_id=? ORDER BY date",
+                conn, params=(sid,))
+    except Exception:
+        return {}
+    if df.empty:
+        return {}
+    latest = df.iloc[-1]
+    chg = None
+    if len(df) >= 2:
+        chg = round(latest["pct_1000"] - df.iloc[-2]["pct_1000"], 2)
+    return {"千張大戶%": round(latest["pct_1000"], 2),
+            "千張週增減": chg, "大戶400%": round(latest["pct_400"], 2)}
+
+
 def industry_map() -> dict:
     """回傳 {stock_id: 產業別}（FinMind TaiwanStockInfo，一次 call 全市場）。"""
     data = fetch("TaiwanStockInfo", start_date="2020-01-01")

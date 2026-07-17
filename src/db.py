@@ -31,6 +31,12 @@ CREATE TABLE IF NOT EXISTS revenue (
 CREATE TABLE IF NOT EXISTS stock_info (
     stock_id TEXT PRIMARY KEY, stock_name TEXT, industry TEXT, type TEXT
 );
+CREATE TABLE IF NOT EXISTS big_holders (
+    date TEXT, stock_id TEXT,
+    pct_1000 REAL,            -- 千張大戶(≥1000張)持股比%
+    pct_400 REAL,             -- 大戶(≥400張)持股比%
+    PRIMARY KEY (date, stock_id)
+);
 """
 
 

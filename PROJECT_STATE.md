@@ -39,7 +39,8 @@ src/
   twse_client.py       # 上市全市場（MI_INDEX/T86/MI_MARGN）
   tpex_client.py       # 上櫃全市場（欄位經 FinMind 交叉驗證）
   finmind_client.py    # FinMind 逐檔
-  enrich.py            # T30 基本面深掘 + 連續配息年數
+  enrich.py            # T30 基本面深掘 + 連續配息年數 + 千張大戶
+  tdcc_client.py       # 集保股權分散（千張大戶，免費全市場）
   backtest.py          # T23 回測引擎
   regime.py            # 多空紅綠燈（建議部位水位）
   global_market.py     # 全球市場（費半/那指/VIX/台幣，Yahoo）
@@ -56,7 +57,11 @@ scripts/
   daily_scan.py        # 波段：環境紅綠燈+全球 + T11 + T16 + 交集
   run_daytrade.py      # 當沖候選
   run_longterm.py      # 長期軌選股
+  update_holders.py    # 千張大戶更新（每週跑，累積趨勢）
   risk_calc.py         # 風控試算（停損/停利/張數）
+docs/
+  功能說明.md          # 所有模組白話解釋
+  指令手冊.md          # 所有指令怎麼跑
   run_t11.py / run_t30.py / run_backtest.py / run_validation.py / run_edge_check.py
 ```
 
