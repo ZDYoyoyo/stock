@@ -13,6 +13,7 @@ FINMIND_URL = "https://api.finmindtrade.com/api/v4/data"
 # --- T11 法人默默吸貨 篩選門檻（依 2026-07 真實全市場分佈校準）---
 class T11:
     LOOKBACK_DAYS = 10          # 觀察最近幾個交易日
+    ALLOWED_MISSING_DAYS = 2    # 容許窗口內偶發缺日（抓取失敗/資料未齊）
     MIN_CONSECUTIVE_BUY = 4     # 投信(或外資)最少連續買超天數
     MAX_PRICE_GAIN = 0.12       # 期間股價漲幅上限（還沒噴出）
     MIN_PRICE_GAIN = -0.15      # 跌太多視為法人套牢/非吸貨，排除
@@ -21,4 +22,5 @@ class T11:
     MAX_ABOVE_MA20 = 0.15       # 收盤高於 20 日均線超過此比例＝已噴出，排除（單邊）
     MIN_AVG_VOLUME = 500        # 上市日均量下限（張）
     MIN_AVG_VOLUME_TPEX = 1000  # 上櫃加嚴：流動性差、易控盤 → 門檻拉高
-    USE_INVESTOR = "Investment_Trust"  # 主看投信；可改 "Foreign_Investor"
+    USE_INVESTOR = "Investment_Trust"  # 上市主看投信；可改 "Foreign_Investor"
+    TPEX_USE_FOREIGN = True     # 上櫃改看外資（投信少碰上櫃，外資才是主要法人力量）

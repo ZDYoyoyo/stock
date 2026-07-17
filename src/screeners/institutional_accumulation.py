@@ -43,20 +43,28 @@ def run() -> pd.DataFrame:
         raise SystemExit("資料庫是空的，請先執行：python -m scripts.update_data")
 
     investor_col = "trust_net" if T11.USE_INVESTOR == "Investment_Trust" else "foreign_net"
-
-    # 取最近 N 個交易日
-    recent_dates = sorted(price["date"].unique())[-T11.LOOKBACK_DAYS:]
-    price = price[price["date"].isin(recent_dates)]
-    inst = inst[inst["date"].isin(recent_dates)]
-
-    ma20 = _ma20_by_stock(recent_dates)
     name_map = info.set_index("stock_id")["stock_name"].to_dict()
     market_map = info.set_index("stock_id")["type"].to_dict()
 
+    # 對齊「共同的最後法人日」：各市場法人公布時間不同（上市常慢上櫃一天），
+    # 取兩市場都有的最新法人日當基準日，避免部分市場多算一天造成連買計算失真。
+    inst = inst.copy()
+    inst["market"] = inst["stock_id"].map(market_map)
+    max_by_mkt = inst.groupby("market")["date"].max()
+    asof = min(max_by_mkt) if len(max_by_mkt) else inst["date"].max()
+
+    # 以基準日為界，取最近 N 個交易日（價量與法人都對齊到同一窗口）
+    win_dates = sorted(d for d in inst["date"].unique() if d <= asof)[-T11.LOOKBACK_DAYS:]
+    price = price[price["date"].isin(win_dates)]
+    inst = inst[inst["date"].isin(win_dates)]
+
+    ma20 = _ma20_by_stock(win_dates)
+
+    min_days = T11.LOOKBACK_DAYS - T11.ALLOWED_MISSING_DAYS  # 容許偶發抓取缺日
     results = []
     for sid, pg in price.groupby("stock_id"):
         pg = pg.sort_values("date")
-        if len(pg) < T11.LOOKBACK_DAYS:
+        if len(pg) < min_days:
             continue
 
         is_tpex = market_map.get(sid) == "tpex"
@@ -72,14 +80,17 @@ def run() -> pd.DataFrame:
         if price_gain >= T11.MAX_PRICE_GAIN or price_gain < T11.MIN_PRICE_GAIN:
             continue  # 太漲(噴出) 或 崩跌(非吸貨) 都排除
 
+        # 市場自適應法人：上市看投信(認養訊號)、上櫃看外資(投信少碰上櫃)
+        col = "foreign_net" if (is_tpex and T11.TPEX_USE_FOREIGN) else investor_col
+        investor_label = "外資" if col == "foreign_net" else "投信"
         ig = inst[inst["stock_id"] == sid].sort_values("date")
         if ig.empty:
             continue
-        consec = _consecutive_buy_days(ig[investor_col])
+        consec = _consecutive_buy_days(ig[col])
         if consec < T11.MIN_CONSECUTIVE_BUY:
             continue
 
-        cum_net = ig[investor_col].sum()
+        cum_net = ig[col].sum()
         total_vol = pg["volume"].sum()
         buy_ratio = cum_net / total_vol if total_vol > 0 else 0
         if buy_ratio < T11.MIN_BUY_RATIO:
@@ -100,6 +111,7 @@ def run() -> pd.DataFrame:
             "stock_id": sid,
             "name": name_map.get(sid, ""),
             "market": "上櫃" if is_tpex else "上市",
+            "investor": investor_label,
             "close": round(last_close, 2),
             "price_gain_%": round(price_gain * 100, 2),
             "consec_buy_days": consec,
@@ -118,10 +130,12 @@ def run() -> pd.DataFrame:
     return df.sort_values("score", ascending=False).reset_index(drop=True)
 
 
-def _ma20_by_stock(recent_dates) -> dict:
-    """用資料庫全期價格算每檔最新 20 日均線。"""
+def _ma20_by_stock(win_dates) -> dict:
+    """算每檔到基準日為止的 20 日均線（不含基準日之後的資料）。"""
+    asof = max(win_dates)
     with connect() as conn:
-        px = pd.read_sql("SELECT date, stock_id, close FROM price", conn)
+        px = pd.read_sql("SELECT date, stock_id, close FROM price WHERE date <= ?",
+                         conn, params=(asof,))
     out = {}
     for sid, g in px.groupby("stock_id"):
         g = g.sort_values("date").tail(20)
