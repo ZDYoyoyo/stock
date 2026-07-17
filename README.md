@@ -43,8 +43,16 @@ python -m scripts.update_data --days 30
 # 2) 跑 T11 法人默默吸貨篩選 → 終端機 + reports/screener/ 下 CSV/MD
 python -m scripts.run_t11
 
-# 3) 每日盤後一鍵掃描（增量更新 + T11 + T16 抗跌強勢 + 雙訊號交集）
-python -m scripts.daily_scan
+# 3) ★ 一鍵跑全部（環境紅綠燈 + 波段 + 長期 + 當沖，輸出單一整合報告）
+python -m scripts.run_all                 # 全部
+python -m scripts.run_all --skip-longterm # 略過較慢的長期軌
+
+# 其他單獨執行
+python -m scripts.daily_scan   # 波段（環境+T11+T16+交集）
+python -m scripts.run_longterm # 長期價值
+python -m scripts.run_daytrade # 當沖候選
+python -m scripts.run_t30      # 短名單基本面深掘
+python -m scripts.risk_calc --stock 2206 --account 1000000 --risk 1.5  # 風控試算
 ```
 
 > 篩選門檻（連買天數、漲幅上限、吃貨比例…）都在 `src/config.py`，可自行調鬆/調緊。

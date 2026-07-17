@@ -51,7 +51,9 @@ src/
     day_trade_candidates.py        # 當沖候選（EOD，高波動+高流動）
 scripts/
   update_data.py       # 抓資料進 DB（--market all/twse/tpex, --days N）
-  daily_scan.py        # 每日盤後：環境紅綠燈+全球 + T11 + T16 + 交集
+  run_all.py           # ★ 一鍵跑全部：環境+三軌，輸出單一整合報告
+  daily_scan.py        # 波段：環境紅綠燈+全球 + T11 + T16 + 交集
+  run_daytrade.py      # 當沖候選
   run_longterm.py      # 長期軌選股
   risk_calc.py         # 風控試算（停損/停利/張數）
   run_t11.py / run_t30.py / run_backtest.py / run_validation.py / run_edge_check.py
