@@ -46,11 +46,18 @@ def _section(f, title, df, cols, n=15, skipped=False):
         f.write(df[keep].head(n).to_markdown(index=False) + "\n")
 
 
-def _summary(today, reg, glob, df11, df16, inter, dflt):
+def _summary(today, reg, glob, df11, df16, inter, dflt, pf_view=None, pf_summary=None):
     """給推播用的精簡摘要（純文字，含 HTML 粗體）。"""
     lines = [f"<b>📈 台股每日報告 {today}</b>",
              f"🚦 {regime_mod.summary_line(reg)}",
              gm.sox_signal(glob), ""]
+    # 持股狀況擺最前（觸停損最該立刻知道）
+    if pf_view is not None and not pf_view.empty:
+        alerts = pf_view[pf_view["狀態"].str.contains("觸停損|停利", na=False)]
+        for r in alerts.itertuples():
+            lines.append(f"🔔 <b>{r.代號} {r.名稱}：{r.狀態}</b>（現價 {r.現價}）")
+        lines.append(f"📋 持股總損益 {pf_summary['總損益']:+,}（{pf_summary['總報酬%']:+.2f}%）")
+        lines.append("")
     if inter:
         lines.append("⭐ <b>雙訊號交集(法人買且抗跌)</b>：" + "、".join(inter))
     if not df11.empty:
@@ -91,6 +98,9 @@ def main():
         print("[長期] 價值+成長+配息（較慢）…")
         dflt = lt.run(verbose=False)
 
+    from src import portfolio as pf
+    pf_view, pf_summary = pf.status()
+
     OUTPUT_DIR.mkdir(parents=True, exist_ok=True)
     today = date.today().isoformat()
     path = OUTPUT_DIR / f"{today}_run_all.md"
@@ -118,6 +128,10 @@ def main():
                   "ROE估%", "營收YoY%", "連配息年", "score"], skipped=args.skip_longterm)
         _section(f, "🔴 當沖候選｜高波動+高流動（盤中盯，非即時訊號）", dfdt,
                  ["stock_id", "name", "market", "close", "今日振幅%", "均振幅%", "量能倍數"])
+        if not pf_view.empty:
+            f.write(f"\n## 📋 我的持股（總損益 {pf_summary['總損益']:+,}"
+                    f"｜{pf_summary['總報酬%']:+.2f}%）\n\n")
+            f.write(pf_view.to_markdown(index=False) + "\n")
 
     # 同步輸出 HTML（表格永遠對齊、紅漲綠跌上色）
     both = (set(df11["stock_id"]) & set(df16["stock_id"])) if not df11.empty and not df16.empty else set()
@@ -137,6 +151,12 @@ def main():
          "cols": ["stock_id", "name", "market", "close", "今日振幅%", "均振幅%", "量能倍數"],
          "signed": []},
     ]
+    if not pf_view.empty:
+        blocks.append({
+            "title": f"📋 我的持股（總損益 {pf_summary['總損益']:+,}｜{pf_summary['總報酬%']:+.2f}%）",
+            "df": pf_view,
+            "cols": ["代號", "名稱", "張數", "成本", "現價", "損益%", "損益金額", "停損", "狀態"],
+            "signed": ["損益%", "損益金額"]})
     inter = [f"{s} {nm.get(s,'')}" for s in both]
     html = report_html.build(today, reg, gm.summary_lines(glob), gm.sox_signal(glob),
                              blocks, intersection=inter)
@@ -150,7 +170,7 @@ def main():
 
     if args.notify:
         from src.notify import notify
-        ok, ch, detail = notify(_summary(today, reg, glob, df11, df16, inter, dflt),
+        ok, ch, detail = notify(_summary(today, reg, glob, df11, df16, inter, dflt, pf_view, pf_summary),
                                 subject=f"台股每日報告 {today}", file_path=str(html_path))
         print(f"   📲 推播（{ch}）：{'成功' if ok else '失敗 - ' + detail}")
 
