@@ -91,6 +91,11 @@ def main():
 
     print("[波段] T11 + T16 …")
     df11, df16 = t11.run(), t16.run()
+    # 併入千張大戶%（來自每週 update_holders；沒資料則欄位空白）
+    from src.enrich import big_holders_map
+    bh = big_holders_map()
+    if not df11.empty:
+        df11["千張大戶%"] = df11["stock_id"].map(bh)
     print("[當沖] 候選掃描 …")
     dfdt = daytrade.run()
     dflt = None
@@ -114,7 +119,7 @@ def main():
 
         _section(f, "🟡 波段｜T11 法人吸貨（上市投信/上櫃外資）", df11,
                  ["stock_id", "name", "market", "investor", "close",
-                  "price_gain_%", "consec_buy_days", "buy_ratio_%", "score"])
+                  "price_gain_%", "consec_buy_days", "buy_ratio_%", "千張大戶%", "score"])
         _section(f, "🟡 波段｜T16 抗跌強勢", df16,
                  ["stock_id", "name", "market", "return_%", "vs_market_%"])
         if not df11.empty and not df16.empty:
@@ -139,7 +144,7 @@ def main():
     blocks = [
         {"title": "🟡 波段｜T11 法人吸貨（上市投信/上櫃外資）", "df": df11,
          "cols": ["stock_id", "name", "market", "investor", "close", "price_gain_%",
-                  "consec_buy_days", "buy_ratio_%", "score"],
+                  "consec_buy_days", "buy_ratio_%", "千張大戶%", "score"],
          "signed": ["price_gain_%"], "after_intersection": True},
         {"title": "🟡 波段｜T16 抗跌強勢", "df": df16,
          "cols": ["stock_id", "name", "market", "return_%", "vs_market_%"],

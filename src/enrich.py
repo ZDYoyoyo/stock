@@ -100,6 +100,20 @@ def big_holder_info(sid: str) -> dict:
             "千張週增減": chg, "大戶400%": round(latest["pct_400"], 2)}
 
 
+def big_holders_map() -> dict:
+    """回傳 {stock_id: 千張大戶%}（最新一週）。沒資料回空 dict。"""
+    from .db import connect
+    import pandas as pd
+    try:
+        with connect() as conn:
+            df = pd.read_sql(
+                "SELECT stock_id, pct_1000 FROM big_holders "
+                "WHERE date=(SELECT MAX(date) FROM big_holders)", conn)
+        return dict(zip(df["stock_id"], df["pct_1000"]))
+    except Exception:
+        return {}
+
+
 def industry_map() -> dict:
     """回傳 {stock_id: 產業別}（FinMind TaiwanStockInfo，一次 call 全市場）。"""
     data = fetch("TaiwanStockInfo", start_date="2020-01-01")
