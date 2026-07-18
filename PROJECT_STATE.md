@@ -64,6 +64,7 @@ scripts/
   run_longterm.py      # 長期軌選股
   update_holders.py    # 千張大戶更新（每週跑，累積趨勢）
   risk_calc.py         # 風控試算（停損/停利/張數）
+  portfolio.py         # 持股追蹤（記錄實單/即時損益/停損警示）
 docs/
   功能說明.md          # 所有模組白話解釋
   指令手冊.md          # 所有指令怎麼跑
