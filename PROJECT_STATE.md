@@ -65,6 +65,9 @@ scripts/
   update_holders.py    # 千張大戶更新（每週跑，累積趨勢）
   risk_calc.py         # 風控試算（停損/停利/張數）
   portfolio.py         # 持股追蹤（記錄實單/即時損益/停損警示）
+  monitor_portfolio.py # 盤中持股守衛（觸停損/停利自動推 Telegram）
+  monitor_intraday.py  # 盤中盯觀察清單（終端機警示）
+  notify.py 用於推播；run_all --notify 盤後推播
 docs/
   功能說明.md          # 所有模組白話解釋
   指令手冊.md          # 所有指令怎麼跑
