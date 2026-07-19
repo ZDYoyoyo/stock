@@ -6,6 +6,8 @@
 原則：先決定「這筆最多能賠多少（風險%）」，再由停損距離反推張數 →
       虧損固定、部位由波動決定，避免凹單與過度下注。
 """
+from __future__ import annotations
+
 import pandas as pd
 
 from .db import connect

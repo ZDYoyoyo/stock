@@ -12,7 +12,7 @@
 
 **第一次安裝（只做一次）**
 ```bat
-:: 0) 事前：先裝好 Python 3.10+（python.org，安裝時勾 Add to PATH）與 Git（git-scm.com）
+:: 0) 事前：先裝好 Python 3.9+（python.org，安裝時勾 Add to PATH）與 Git（git-scm.com）
 
 :: 1) 把專案抓下來（clone 到你想放的資料夾，例如 C:\Users\你）
 git clone -b claude/taiwan-stock-analysis-asx-mww0s6 https://github.com/ZDYoyoyo/stock.git

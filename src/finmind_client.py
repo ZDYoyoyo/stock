@@ -4,6 +4,8 @@ FinMind 免費資料源：https://finmindtrade.com/
 以「日期區間、全市場」方式抓取（一次 call 回傳所有股票），
 比逐檔查詢省很多額度、也避免打爆 rate limit。
 """
+from __future__ import annotations
+
 import os
 import time
 

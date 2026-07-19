@@ -5,6 +5,8 @@ Line Notify 已於 2025/3/31 停止服務，改用 Telegram（免費、手機推
   Telegram：TELEGRAM_BOT_TOKEN、TELEGRAM_CHAT_ID
   Email   ：SMTP_HOST、SMTP_PORT、SMTP_USER、SMTP_PASS、MAIL_TO
 """
+from __future__ import annotations
+
 import os
 import smtplib
 from email.mime.text import MIMEText
