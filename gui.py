@@ -21,7 +21,8 @@ class Console:
     def __init__(self, root):
         self.root = root
         root.title("台股研究系統 · 控制台")
-        root.geometry("960x680")
+        root.geometry("900x620")
+        root.minsize(720, 480)
         self.q = queue.Queue()
         self.proc = None
 
@@ -34,9 +35,20 @@ class Console:
         body = tk.Frame(root)
         body.pack(fill="both", expand=True, padx=10, pady=4)
 
-        # 左：按鈕區
-        left = tk.Frame(body)
-        left.pack(side="left", fill="y", padx=(0, 8))
+        # 左：按鈕區（可捲動，小螢幕也能看到全部）
+        left_box = tk.Frame(body)
+        left_box.pack(side="left", fill="y", padx=(0, 8))
+        canvas = tk.Canvas(left_box, width=210, highlightthickness=0)
+        sb = tk.Scrollbar(left_box, orient="vertical", command=canvas.yview)
+        left = tk.Frame(canvas)
+        left.bind("<Configure>", lambda e: canvas.configure(scrollregion=canvas.bbox("all")))
+        canvas.create_window((0, 0), window=left, anchor="nw")
+        canvas.configure(yscrollcommand=sb.set)
+        canvas.pack(side="left", fill="y")
+        sb.pack(side="right", fill="y")
+        _wheel = lambda e: canvas.yview_scroll(int(-e.delta / 120), "units")
+        canvas.bind("<Enter>", lambda e: canvas.bind_all("<MouseWheel>", _wheel))
+        canvas.bind("<Leave>", lambda e: canvas.unbind_all("<MouseWheel>"))
         self._buttons(left)
 
         # 右：輸出主控台
@@ -56,7 +68,7 @@ class Console:
                  fg="#555").pack(anchor="w", pady=(10, 2))
 
     def _btn(self, parent, text, cmd, color="#f0f0f0"):
-        b = tk.Button(parent, text=text, font=FONT, width=20, anchor="w",
+        b = tk.Button(parent, text=text, font=FONT, width=17, anchor="w",
                       bg=color, relief="groove", command=cmd)
         b.pack(fill="x", pady=1)
         return b
