@@ -27,6 +27,8 @@ from src.screeners import institutional_accumulation as t11
 from src.screeners import relative_strength as t16
 from src.screeners import day_trade_candidates as daytrade
 from src.screeners import long_term_value as lt
+from src.screeners import revenue_momentum as t12
+from src.screeners import landmine
 
 
 def _update(days: int):
@@ -53,6 +55,19 @@ def _asof_note(df, kind):
     return f"資料截至 {asof}"
 
 
+def _landmine_warn(f, df11):
+    """T11 候選若有高風險（🔴/🟠），列出紅旗提醒（選股當下就看到雷）。"""
+    if df11 is None or df11.empty or "風險" not in df11.columns:
+        return
+    hi = df11[df11["風險"].astype(str).str.contains("嚴重|高", na=False)]
+    if hi.empty:
+        return
+    f.write("\n> 🧨 **T11 候選排雷提醒**（財務/籌碼/技術紅旗，建議先避開或查清）：\n")
+    for r in hi.itertuples():
+        flags = getattr(r, "紅旗", "") or ""
+        f.write(f"> - {r.stock_id} {r.name}：{r.風險}　{flags}\n")
+
+
 def _section(f, title, df, cols, n=15, skipped=False, note=None):
     f.write(f"\n## {title}\n\n")
     if note:
@@ -67,7 +82,7 @@ def _section(f, title, df, cols, n=15, skipped=False, note=None):
         f.write(disp.to_markdown(index=False) + "\n")
 
 
-def _summary(today, reg, glob, df11, df16, inter, dflt, pf_view=None, pf_summary=None):
+def _summary(today, reg, glob, df11, df16, inter, dflt, df12=None, pf_view=None, pf_summary=None):
     """給推播用的精簡摘要（純文字，含 HTML 粗體）。"""
     lines = [f"<b>📈 台股每日報告 {today}</b>",
              f"🚦 {regime_mod.summary_line(reg)}",
@@ -85,6 +100,16 @@ def _summary(today, reg, glob, df11, df16, inter, dflt, pf_view=None, pf_summary
         top = df11.head(3)
         lines.append("🟡 波段T11 前3：" +
                      "、".join(f"{r.stock_id} {r.name}" for r in top.itertuples()))
+        # T11 候選若有高風險地雷，提醒
+        if "風險" in df11.columns:
+            hi = df11[df11["風險"].astype(str).str.contains("嚴重|高", na=False)]
+            if not hi.empty:
+                lines.append("🧨 <b>T11 排雷警示</b>：" +
+                             "、".join(f"{r.stock_id} {r.name}({r.風險})" for r in hi.itertuples()))
+    if df12 is not None and not df12.empty:
+        top = df12.head(3)
+        lines.append("🚀 營收動能T12 前3：" +
+                     "、".join(f"{r.stock_id} {r.name}" for r in top.itertuples()))
     if dflt is not None and not dflt.empty:
         top = dflt.head(3)
         lines.append("🟢 長期 前3：" +
@@ -98,6 +123,7 @@ def main():
     ap.add_argument("--no-update", action="store_true")
     ap.add_argument("--skip-longterm", action="store_true")
     ap.add_argument("--notify", action="store_true", help="把摘要推播到手機（Telegram/Email，需設 .env）")
+    ap.add_argument("--skip-landmine", action="store_true", help="略過 T11 候選排雷（省 FinMind 呼叫、加快）")
     ap.add_argument("--days", type=int, default=12)
     args = ap.parse_args()
 
@@ -117,6 +143,20 @@ def main():
     bh = big_holders_map()
     if not df11.empty:
         df11["千張大戶%"] = df11["stock_id"].map(bh)
+        # 對 T11 候選就地排雷（清單小，FinMind 成本低）→ 選股當下就看到雷
+        if not args.skip_landmine:
+            print("[排雷] 掃 T11 候選 …")
+            lm = landmine.scan(df11["stock_id"].tolist(), verbose=False)
+            if not lm.empty:
+                rmap = lm.set_index("stock_id")["風險級"].to_dict()
+                fmap = lm.set_index("stock_id")["紅旗"].to_dict()
+                df11["風險"] = df11["stock_id"].map(rmap)
+                df11["紅旗"] = df11["stock_id"].map(fmap)
+    print("[成長] T12 月營收動能 …")
+    try:
+        df12 = t12.run()
+    except SystemExit:
+        df12 = None
     print("[當沖] 候選掃描 …")
     dfdt = daytrade.run()
     dflt = None
@@ -145,8 +185,9 @@ def main():
 
         _section(f, "🟡 波段｜T11 法人吸貨（上市投信/上櫃外資）", df11,
                  ["stock_id", "name", "market", "investor", "close",
-                  "price_gain_%", "consec_buy_days", "buy_ratio_%", "千張大戶%", "score"],
+                  "price_gain_%", "consec_buy_days", "buy_ratio_%", "千張大戶%", "風險", "score"],
                  note=note11)
+        _landmine_warn(f, df11)
         _section(f, "🟡 波段｜T16 抗跌強勢", df16,
                  ["stock_id", "name", "market", "return_%", "vs_market_%"], note=note16)
         if not df11.empty and not df16.empty:
@@ -155,6 +196,9 @@ def main():
             nm = df11.set_index("stock_id")["name"].to_dict()
             f.write("".join(f"- {s} {nm.get(s,'')}\n" for s in both) if both else "（無）\n")
 
+        _section(f, "🚀 成長｜T12 月營收動能（YoY強+近月加速）", df12,
+                 ["stock_id", "name", "market", "產業", "close", "YoY%",
+                  "累計YoY%", "加速度", "站上20MA", "score"], n=20)
         _section(f, "🟢 長期｜價值+成長+配息", dflt,
                  ["stock_id", "name", "產業", "close", "殖利率%", "PER",
                   "ROE估%", "營收YoY%", "連配息年", "score"], skipped=args.skip_longterm)
@@ -172,11 +216,15 @@ def main():
     blocks = [
         {"title": "🟡 波段｜T11 法人吸貨（上市投信/上櫃外資）", "df": df11, "note": note11,
          "cols": ["stock_id", "name", "market", "investor", "close", "price_gain_%",
-                  "consec_buy_days", "buy_ratio_%", "千張大戶%", "score"],
+                  "consec_buy_days", "buy_ratio_%", "千張大戶%", "風險", "紅旗", "score"],
          "signed": ["price_gain_%"], "after_intersection": True},
         {"title": "🟡 波段｜T16 抗跌強勢", "df": df16, "note": note16,
          "cols": ["stock_id", "name", "market", "return_%", "vs_market_%"],
          "signed": ["return_%", "vs_market_%"]},
+        {"title": "🚀 成長｜T12 月營收動能（YoY強+近月加速）", "df": df12,
+         "cols": ["stock_id", "name", "market", "產業", "close", "YoY%",
+                  "累計YoY%", "MoM%", "加速度", "站上20MA", "score"],
+         "signed": ["YoY%", "累計YoY%", "MoM%", "加速度"]},
         {"title": "🟢 長期｜價值+成長+配息", "df": dflt, "skipped": args.skip_longterm,
          "cols": ["stock_id", "name", "產業", "close", "殖利率%", "PER", "ROE估%",
                   "營收YoY%", "連配息年", "score"], "signed": ["營收YoY%"]},
@@ -198,12 +246,13 @@ def main():
 
     print(f"\n✅ 整合報告 → {path}")
     print(f"   HTML（瀏覽器開、表格對齊）→ {html_path}")
-    print(f"   波段T11 {len(df11)} / T16 {len(df16)} ｜ 當沖 {len(dfdt)}"
+    print(f"   波段T11 {len(df11)} / T16 {len(df16)} ｜ T12 {0 if df12 is None else len(df12)}"
+          f" ｜ 當沖 {len(dfdt)}"
           + (f" ｜ 長期 {len(dflt)}" if dflt is not None else " ｜ 長期(略過)"))
 
     if args.notify:
         from src.notify import notify
-        ok, ch, detail = notify(_summary(today, reg, glob, df11, df16, inter, dflt, pf_view, pf_summary),
+        ok, ch, detail = notify(_summary(today, reg, glob, df11, df16, inter, dflt, df12, pf_view, pf_summary),
                                 subject=f"台股每日報告 {today}", file_path=str(html_path))
         print(f"   📲 推播（{ch}）：{'成功' if ok else '失敗 - ' + detail}")
 

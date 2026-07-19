@@ -49,6 +49,25 @@ class DAYTRADE:
     VOL_SURGE = 1.5            # 當日量 / 20日均量 倍數（爆量門檻，用於加分非硬篩）
 
 
+# --- T12 月營收動能股（全市場官方月營收 OpenAPI）門檻 ---
+class T12:
+    MIN_YOY = 15.0            # 最新月營收 YoY 下限(%)
+    MAX_YOY = 300.0          # YoY 上限：>此值多為基期效應(去年同月近0)雜訊，排除
+    MIN_CUM_YOY = 5.0         # 累計營收 YoY 下限(%)：避免單月一次性暴衝
+    MAX_CUM_YOY = 200.0      # 累計 YoY 上限：同樣濾基期爆表
+    MIN_ACCEL = 0.0          # 加速度=單月YoY−累計YoY，>此值代表近月動能加速
+    REQUIRE_ACCEL = True      # 是否硬性要求加速（False 則只當加分）
+    MIN_CLOSE = 10.0          # 股價下限，濾雞蛋水餃股
+    MIN_AVG_VOLUME = 300      # 日均量下限(張)：要有基本流動性
+    ABOVE_MA20_BONUS = True   # 股價站上20MA（市場也認同）加分
+    # 營收認列不規律產業（營建完工才認列，YoY 失真）→ 直接排除（不是動能股該用的濾網）
+    EXCLUDE_INDUSTRIES = ("建材營造", "營建")
+    SCORE_CAP_YOY = 150.0    # 評分時 YoY 貢獻上限，避免極端值洗版排序
+    SCORE_CAP_CUM = 100.0
+    SCORE_CAP_ACCEL = 100.0
+    TOP_N = 25                # 輸出前幾檔
+
+
 # --- 地雷偵測（財務+籌碼+技術 紅旗）門檻 ---
 class LANDMINE:
     # 財務面（FinMind 綜合損益表/月營收）

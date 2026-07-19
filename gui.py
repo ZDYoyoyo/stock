@@ -84,6 +84,7 @@ class Console:
         self._btn(p, "🏦 更新千張大戶", lambda: self.run(["scripts.update_holders"], "更新千張大戶"))
 
         self._section(p, "單軌 / 研究")
+        self._btn(p, "🚀 月營收動能T12", lambda: self.run(["scripts.run_t12"], "月營收動能"), "#e8fbef")
         self._btn(p, "🟢 長期價值", lambda: self.run(["scripts.run_longterm"], "長期價值"))
         self._btn(p, "🔴 當沖候選", lambda: self.run(["scripts.run_daytrade"], "當沖候選"))
         self._btn(p, "🔬 基本面深掘", lambda: self.run(["scripts.run_t30"], "深掘"))
