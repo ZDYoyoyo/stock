@@ -55,16 +55,19 @@ def run() -> pd.DataFrame:
             "name": name_map.get(sid, ""),
             "market": "上櫃" if is_tpex else "上市",
             "close": round(g["close"].iloc[-1], 2),
-            "今日振幅%": round(today_amp, 2),
+            "當日振幅%": round(today_amp, 2),
             "均振幅%": round(avg_amp, 2),
             "量能倍數": round(vol_surge, 2),
             "日均量": int(avg_vol),
         })
 
     df = pd.DataFrame(rows)
-    if df.empty:
-        return df
-    # 評分：波動(均振幅) × 流動性(量對數) + 爆量加分
-    df["score"] = (df["均振幅%"] * np.log10(df["日均量"].clip(lower=10))
-                   + (df["量能倍數"] - 1).clip(lower=0) * 5).round(2)
-    return df.sort_values("score", ascending=False).reset_index(drop=True)
+    if not df.empty:
+        # 評分：波動(均振幅) × 流動性(量對數) + 爆量加分
+        df["score"] = (df["均振幅%"] * np.log10(df["日均量"].clip(lower=10))
+                       + (df["量能倍數"] - 1).clip(lower=0) * 5).round(2)
+        df = df.sort_values("score", ascending=False).reset_index(drop=True)
+    # asof=最新交易日；均振幅/量能為近 LOOKBACK 日統計，供報告標示
+    df.attrs["asof"] = max(dates) if dates else None
+    df.attrs["window"] = len(dates)
+    return df

@@ -10,6 +10,30 @@ import pandas as pd
 _UP = "#d63031"
 _DOWN = "#158a4e"
 
+# 欄位顯示名（讓表頭一看就懂；內部欄名維持英文供計算/評分用）。
+# 重點：把易誤讀成「單日」的欄位標明是「區間」；close 標明是「基準日收盤」。
+COLUMN_LABELS = {
+    "stock_id": "代號",
+    "name": "名稱",
+    "market": "市場",
+    "investor": "法人",
+    "close": "收盤",
+    "price_gain_%": "區間漲幅%",
+    "consec_buy_days": "連買天數",
+    "buy_ratio_%": "吃貨比重%",
+    "cum_net_lots": "法人累買張",
+    "margin_chg_%": "融資增減%",
+    "avg_vol_lots": "日均量張",
+    "return_%": "區間漲幅%",
+    "vs_market_%": "相對大盤%",
+    "score": "評分",
+}
+
+
+def label(col: str) -> str:
+    """欄位英文名 → 中文顯示名（沒定義的原樣顯示，已是中文的欄位不受影響）。"""
+    return COLUMN_LABELS.get(col, col)
+
 _CSS = """
 :root { color-scheme: light dark; }
 * { box-sizing: border-box; }
@@ -25,7 +49,8 @@ h1 { font-size: 22px; margin: 0 0 4px; }
 .reg-weak { background: #fff4e5; border-color: #e67e22; }
 .reg-neutral { background: #eef2f7; border-color: #6b7a90; }
 .reg-bull { background: #e8f7ee; border-color: #158a4e; }
-h2 { font-size: 16px; margin: 22px 0 8px; padding-bottom: 6px; border-bottom: 2px solid #e2e5ea; }
+h2 { font-size: 16px; margin: 22px 0 4px; padding-bottom: 6px; border-bottom: 2px solid #e2e5ea; }
+.note { color:#777; font-size:12px; margin: 0 0 8px; }
 .tblwrap { overflow-x: auto; }
 table { border-collapse: collapse; width: 100%; font-size: 13px; background: #fff;
   border-radius: 8px; overflow: hidden; box-shadow: 0 1px 3px rgba(0,0,0,.06); }
@@ -54,7 +79,7 @@ def _fmt(v):
 
 def _table(df: pd.DataFrame, cols, signed_cols) -> str:
     cols = [c for c in cols if c in df.columns]
-    head = "".join(f"<th>{c}</th>" for c in cols)
+    head = "".join(f"<th>{label(c)}</th>" for c in cols)
     body = ""
     for _, row in df.iterrows():
         tds = ""
@@ -90,6 +115,8 @@ def build(today, reg, glob_lines, sox, blocks, intersection=None) -> str:
     body = ""
     for b in blocks:
         body += f"<h2>{b['title']}</h2>"
+        if b.get("note"):
+            body += f'<p class="note">{b["note"]}</p>'
         df = b["df"]
         if b.get("skipped"):
             body += "<p>（已略過 --skip-longterm；要看長期軌請跑 <code>python -m scripts.run_longterm</code>）</p>"

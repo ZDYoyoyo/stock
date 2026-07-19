@@ -60,6 +60,9 @@ def run() -> pd.DataFrame:
         })
 
     df = pd.DataFrame(rows)
-    if df.empty:
-        return df
-    return df.sort_values("vs_market_%", ascending=False).reset_index(drop=True)
+    if not df.empty:
+        df = df.sort_values("vs_market_%", ascending=False).reset_index(drop=True)
+    # asof=區間末日（最新交易日）；window=區間長度，供報告標示（漲幅為區間累積非單日）
+    df.attrs["asof"] = max(dates)
+    df.attrs["window"] = len(dates)
+    return df

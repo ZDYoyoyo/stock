@@ -35,15 +35,36 @@ def _update(days: int):
                    cwd=str(ROOT), check=True)
 
 
-def _section(f, title, df, cols, n=15, skipped=False):
+def _asof_note(df, kind):
+    """由 screener 回傳的 df.attrs 組出「資料日期」說明，避免區間值被誤讀成單日。"""
+    if df is None:
+        return None
+    asof = df.attrs.get("asof")
+    win = df.attrs.get("window")
+    if not asof:
+        return None
+    if kind == "t11":
+        return (f"法人資料截至 {asof}（表中「收盤」為該基準日收盤，非最新交易日；"
+                f"「區間漲幅%」為近 {win} 交易日累積漲幅，非單日漲跌）")
+    if kind == "t16":
+        return f"資料截至 {asof}（「區間漲幅%」「相對大盤%」為近 {win} 交易日累積值，非單日）"
+    if kind == "daytrade":
+        return f"資料截至 {asof}（「當日振幅%」為該日振幅；「均振幅%」為近 {win} 日平均）"
+    return f"資料截至 {asof}"
+
+
+def _section(f, title, df, cols, n=15, skipped=False, note=None):
     f.write(f"\n## {title}\n\n")
+    if note:
+        f.write(f"> 📅 {note}\n\n")
     if skipped:
         f.write("（已略過 --skip-longterm；要看長期軌請跑 `python -m scripts.run_longterm`）\n")
     elif df is None or df.empty:
         f.write("（今日無符合條件標的）\n")
     else:
         keep = [c for c in cols if c in df.columns]
-        f.write(df[keep].head(n).to_markdown(index=False) + "\n")
+        disp = df[keep].head(n).rename(columns=report_html.COLUMN_LABELS)
+        f.write(disp.to_markdown(index=False) + "\n")
 
 
 def _summary(today, reg, glob, df11, df16, inter, dflt, pf_view=None, pf_summary=None):
@@ -106,6 +127,11 @@ def main():
     from src import portfolio as pf
     pf_view, pf_summary = pf.status()
 
+    # 資料日期說明（避免區間值/基準日收盤被誤讀成單日/最新日）
+    note11 = _asof_note(df11, "t11")
+    note16 = _asof_note(df16, "t16")
+    notedt = _asof_note(dfdt, "daytrade")
+
     OUTPUT_DIR.mkdir(parents=True, exist_ok=True)
     today = date.today().isoformat()
     path = OUTPUT_DIR / f"{today}_run_all.md"
@@ -119,9 +145,10 @@ def main():
 
         _section(f, "🟡 波段｜T11 法人吸貨（上市投信/上櫃外資）", df11,
                  ["stock_id", "name", "market", "investor", "close",
-                  "price_gain_%", "consec_buy_days", "buy_ratio_%", "千張大戶%", "score"])
+                  "price_gain_%", "consec_buy_days", "buy_ratio_%", "千張大戶%", "score"],
+                 note=note11)
         _section(f, "🟡 波段｜T16 抗跌強勢", df16,
-                 ["stock_id", "name", "market", "return_%", "vs_market_%"])
+                 ["stock_id", "name", "market", "return_%", "vs_market_%"], note=note16)
         if not df11.empty and not df16.empty:
             both = set(df11["stock_id"]) & set(df16["stock_id"])
             f.write("\n### ⭐ 波段雙訊號交集（法人買且抗跌）\n\n")
@@ -132,7 +159,8 @@ def main():
                  ["stock_id", "name", "產業", "close", "殖利率%", "PER",
                   "ROE估%", "營收YoY%", "連配息年", "score"], skipped=args.skip_longterm)
         _section(f, "🔴 當沖候選｜高波動+高流動（盤中盯，非即時訊號）", dfdt,
-                 ["stock_id", "name", "market", "close", "今日振幅%", "均振幅%", "量能倍數"])
+                 ["stock_id", "name", "market", "close", "當日振幅%", "均振幅%", "量能倍數"],
+                 note=notedt)
         if not pf_view.empty:
             f.write(f"\n## 📋 我的持股（總損益 {pf_summary['總損益']:+,}"
                     f"｜{pf_summary['總報酬%']:+.2f}%）\n\n")
@@ -142,18 +170,18 @@ def main():
     both = (set(df11["stock_id"]) & set(df16["stock_id"])) if not df11.empty and not df16.empty else set()
     nm = df11.set_index("stock_id")["name"].to_dict() if not df11.empty else {}
     blocks = [
-        {"title": "🟡 波段｜T11 法人吸貨（上市投信/上櫃外資）", "df": df11,
+        {"title": "🟡 波段｜T11 法人吸貨（上市投信/上櫃外資）", "df": df11, "note": note11,
          "cols": ["stock_id", "name", "market", "investor", "close", "price_gain_%",
                   "consec_buy_days", "buy_ratio_%", "千張大戶%", "score"],
          "signed": ["price_gain_%"], "after_intersection": True},
-        {"title": "🟡 波段｜T16 抗跌強勢", "df": df16,
+        {"title": "🟡 波段｜T16 抗跌強勢", "df": df16, "note": note16,
          "cols": ["stock_id", "name", "market", "return_%", "vs_market_%"],
          "signed": ["return_%", "vs_market_%"]},
         {"title": "🟢 長期｜價值+成長+配息", "df": dflt, "skipped": args.skip_longterm,
          "cols": ["stock_id", "name", "產業", "close", "殖利率%", "PER", "ROE估%",
                   "營收YoY%", "連配息年", "score"], "signed": ["營收YoY%"]},
-        {"title": "🔴 當沖候選｜高波動+高流動（盤中盯，非即時訊號）", "df": dfdt,
-         "cols": ["stock_id", "name", "market", "close", "今日振幅%", "均振幅%", "量能倍數"],
+        {"title": "🔴 當沖候選｜高波動+高流動（盤中盯，非即時訊號）", "df": dfdt, "note": notedt,
+         "cols": ["stock_id", "name", "market", "close", "當日振幅%", "均振幅%", "量能倍數"],
          "signed": []},
     ]
     if not pf_view.empty:

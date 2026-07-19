@@ -122,12 +122,16 @@ def run() -> pd.DataFrame:
         })
 
     df = pd.DataFrame(results)
-    if df.empty:
-        return df
-    # 綜合評分：吃貨力道(權重2) + 連買天數(權重3) + 相對強弱(抗跌/上漲加分)
-    df["score"] = (df["buy_ratio_%"] * 2 + df["consec_buy_days"] * 3
-                   + df["price_gain_%"] * 1).round(2)
-    return df.sort_values("score", ascending=False).reset_index(drop=True)
+    if not df.empty:
+        # 綜合評分：吃貨力道(權重2) + 連買天數(權重3) + 相對強弱(抗跌/上漲加分)
+        df["score"] = (df["buy_ratio_%"] * 2 + df["consec_buy_days"] * 3
+                       + df["price_gain_%"] * 1).round(2)
+        df = df.sort_values("score", ascending=False).reset_index(drop=True)
+    # asof=法人資料對齊基準日；window=區間漲幅/連買計算的交易日數
+    # （供報告標示，避免把「區間漲幅」誤讀成單日、把 asof 收盤誤讀成最新日）
+    df.attrs["asof"] = asof
+    df.attrs["window"] = len(win_dates)
+    return df
 
 
 def _ma20_by_stock(win_dates) -> dict:
