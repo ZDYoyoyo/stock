@@ -87,6 +87,8 @@ class Console:
         self._btn(p, "🟢 長期價值", lambda: self.run(["scripts.run_longterm"], "長期價值"))
         self._btn(p, "🔴 當沖候選", lambda: self.run(["scripts.run_daytrade"], "當沖候選"))
         self._btn(p, "🔬 基本面深掘", lambda: self.run(["scripts.run_t30"], "深掘"))
+        self._btn(p, "🧨 地雷偵測(持股)", lambda: self.run(["scripts.run_landmine", "--holdings"], "地雷偵測-持股"), "#fde8e8")
+        self._btn(p, "🧨 候選排雷", lambda: self.run(["scripts.run_landmine", "--from-daily"], "候選排雷"), "#fde8e8")
 
         self._section(p, "持股 / 風控")
         self._input_area(p)
@@ -112,6 +114,7 @@ class Console:
         self._btn(p, "➖ 移除持股", self.remove_holding)
         self._btn(p, "📋 查看持股損益", lambda: self.run(["scripts.portfolio"], "查看持股"))
         self._btn(p, "🧮 風控試算(需代號)", self.risk_calc)
+        self._btn(p, "🧨 排雷(此代號)", self.landmine_one)
 
     # ---- 動作 ----
     def add_holding(self):
@@ -140,6 +143,13 @@ class Console:
             return
         self.run(["scripts.risk_calc", "--stock", sid, "--account", "1000000", "--risk", "1.5"],
                  f"風控試算 {sid}")
+
+    def landmine_one(self):
+        sid = self.e["sid"].get().strip()
+        if not sid:
+            self.log("⚠️ 排雷需填代號（或用左側「地雷偵測(持股)」檢查全部持股）\n")
+            return
+        self.run(["scripts.run_landmine", "--stocks", sid], f"排雷 {sid}")
 
     def open_reports(self):
         d = ROOT / "reports" / "screener"

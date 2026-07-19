@@ -60,6 +60,7 @@ src/
     market_breadth.py              # 市場廣度
     long_term_value.py             # 長期：價值+成長+配息
     day_trade_candidates.py        # 當沖候選（EOD，高波動+高流動）
+    landmine.py                    # 🧨 地雷偵測（財務+籌碼+技術紅旗，排雷用）
 scripts/
   update_data.py       # 抓資料進 DB（--market all/twse/tpex, --days N）
   run_all.py           # ★ 一鍵跑全部：環境+三軌，輸出單一整合報告
@@ -70,6 +71,7 @@ scripts/
   risk_calc.py         # 風控試算（停損/停利/張數）
   portfolio.py         # 持股追蹤（記錄實單/即時損益/停損警示）
   monitor_portfolio.py # 盤中持股守衛（觸停損/停利自動推 Telegram）
+  run_landmine.py      # 🧨 地雷偵測（--holdings/--stocks/--from-daily，買進前排雷）
   monitor_intraday.py  # 盤中盯觀察清單（終端機警示）
   notify.py 用於推播；run_all --notify 盤後推播
 docs/

@@ -49,6 +49,27 @@ class DAYTRADE:
     VOL_SURGE = 1.5            # 當日量 / 20日均量 倍數（爆量門檻，用於加分非硬篩）
 
 
+# --- 地雷偵測（財務+籌碼+技術 紅旗）門檻 ---
+class LANDMINE:
+    # 財務面（FinMind 綜合損益表/月營收）
+    REV_YOY_BAD = -20.0        # 近3月營收YoY均 低於此 → 營收動能崩塌
+    REV_YOY_CRASH = -30.0      # 最新單月營收YoY 低於此 → 單月急墜
+    EPS_TTM_DROP = -50.0       # 近四季EPS年增 低於此(%) → 獲利崩
+    MARGIN_DROP_PP = 5.0       # 最新季毛利率 較去年同季 下滑超過幾個百分點 → 毛利惡化
+    # 籌碼面（本地 DB）
+    INST_SELL_DAYS = 4         # 法人(投信/外資)連續賣超天數 → 法人棄守
+    BIG_HOLDER_DROP = 1.0      # 千張大戶比 週減超過幾個百分點 → 大戶出貨
+    MARGIN_SURGE = 0.20        # 融資餘額期間增幅超過 → 散戶接刀
+    # 技術面（本地 DB）
+    MA_LONG = 60               # 季線天數，跌破=中期轉弱
+    WEAK_VS_MARKET = -10.0     # 近20日報酬 減 大盤中位 低於此(%) → 相對弱勢
+    LOOKBACK_DAYS = 20
+    # 風險分級（紅旗加權總分）
+    LEVEL_SEVERE = 6           # ≥ → 嚴重
+    LEVEL_HIGH = 4             # ≥ → 高
+    LEVEL_MID = 2              # ≥ → 中
+
+
 # --- T16 相對強弱／抗跌強勢股 門檻 ---
 class T16:
     LOOKBACK_DAYS = 10
