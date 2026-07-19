@@ -24,19 +24,27 @@ _LEVEL_ORDER = {"🟢 低": 0, "🟡 中": 1, "🟠 高": 2, "🔴 嚴重": 3}
 _LEVEL_ALIAS = {"低": 0, "中": 1, "高": 2, "嚴重": 3}
 
 
-def _daily_candidates() -> list:
-    """今天 T11/T16/當沖候選的代號（去重），排雷用。"""
+def _daily_candidates(t16_top: int = 15) -> list:
+    """今天『波段』候選代號（去重），排雷用。
+
+    聚焦 T11(法人吸貨，全部) + T16(抗跌強勢，前 t16_top 檔)——這些是要抱天~週的標的，
+    財務/籌碼紅旗才有意義。當沖候選是隔日沖、看財務無意義，故不納入。
+    """
     from src.screeners import institutional_accumulation as t11
     from src.screeners import relative_strength as t16
-    from src.screeners import day_trade_candidates as dt
     sids = []
-    for run in (t11.run, t16.run, dt.run):
-        try:
-            df = run()
-            if not df.empty:
-                sids += df["stock_id"].tolist()
-        except Exception:
-            pass
+    try:
+        d11 = t11.run()
+        if not d11.empty:
+            sids += d11["stock_id"].tolist()
+    except Exception:
+        pass
+    try:
+        d16 = t16.run()
+        if not d16.empty:
+            sids += d16["stock_id"].head(t16_top).tolist()
+    except Exception:
+        pass
     seen, out = set(), []
     for s in sids:
         if s not in seen:
@@ -49,7 +57,8 @@ def main():
     ap = argparse.ArgumentParser()
     ap.add_argument("--stocks", help="逗號分隔代號，如 2330,2887")
     ap.add_argument("--holdings", action="store_true", help="檢查我的持股")
-    ap.add_argument("--from-daily", action="store_true", help="檢查今天 T11/T16/當沖候選")
+    ap.add_argument("--from-daily", action="store_true",
+                    help="檢查今天波段候選(T11全部+T16前15，當沖不納入)")
     ap.add_argument("--min-level", default="低", choices=["低", "中", "高", "嚴重"],
                     help="只列出風險≥此級（預設全列）")
     args = ap.parse_args()
