@@ -49,6 +49,7 @@ src/
   tpex_client.py       # 上櫃全市場（欄位經 FinMind 交叉驗證）
   finmind_client.py    # FinMind 逐檔
   revenue_client.py    # 全市場月營收（TWSE/TPEX OpenAPI，免金鑰，供 T12）
+  broker_client.py     # 券商分點（FinMind Sponsor 付費；有 token 自動啟用，否則降級）
   enrich.py            # T30 基本面深掘 + 連續配息年數 + 千張大戶
   tdcc_client.py       # 集保股權分散（千張大戶，免費全市場）
   backtest.py          # T23 回測引擎
@@ -62,6 +63,7 @@ src/
     long_term_value.py             # 長期：價值+成長+配息
     day_trade_candidates.py        # 當沖候選（EOD，高波動+高流動）
     revenue_momentum.py            # 🚀 T12 月營收動能（全市場官方月營收，免FinMind）
+    main_force.py                  # 🏦 主力籌碼綜合（法人+千張+融資；分點自動加值）
     landmine.py                    # 🧨 地雷偵測（財務+籌碼+技術紅旗，排雷用）
 scripts/
   update_data.py       # 抓資料進 DB（--market all/twse/tpex, --days N）
@@ -69,7 +71,9 @@ scripts/
   daily_scan.py        # 波段：環境紅綠燈+全球 + T11 + T16 + 交集
   run_daytrade.py      # 當沖候選
   run_t12.py           # 🚀 T12 月營收動能股
+  run_mainforce.py     # 🏦 主力籌碼綜合（--stocks 看單檔；分點自動加值）
   run_landmine.py      # 🧨 地雷偵測（見上）
+  run_short_backtest.py / run_trigger_backtest.py  # 地雷放空 & 觸發器回測
   run_longterm.py      # 長期軌選股
   update_holders.py    # 千張大戶更新（每週跑，累積趨勢）
   risk_calc.py         # 風控試算（停損/停利/張數）
@@ -92,6 +96,7 @@ docs/
 | T16 | 抗跌強勢股（相對大盤強弱） | ✅ |
 | T12 | 月營收動能股（YoY強+近月加速，全市場官方月營收） | ✅ |
 | 地雷偵測 | 財務+籌碼+技術紅旗排雷；已接進 run_all 標 T11 風險欄 | ✅ |
+| 主力籌碼綜合 | 法人+千張+融資「主力進駐分數」；有 Sponsor token 自動加分點 | ✅ |
 | 市場廣度 | 漲跌家數 + 站上20MA% → 判斷進場時機 | ✅ |
 | T22 | 每日盤後一鍵掃描 | ✅ |
 | T30 | 短名單基本面深掘（FinMind） | ✅ |

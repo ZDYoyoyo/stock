@@ -68,6 +68,18 @@ class T12:
     TOP_N = 25                # 輸出前幾檔
 
 
+# --- 主力籌碼綜合（法人+千張大戶+融資；分點需 FinMind Sponsor 自動加值）---
+class MAINFORCE:
+    LOOKBACK_DAYS = 10        # 法人/融資觀察窗
+    MIN_CLOSE = 10.0
+    MIN_AVG_VOLUME = 500      # 日均量下限(張)
+    W_INST = 2.0             # 法人佔量% 權重
+    W_HOLDER = 3.0           # 千張大戶週增(pp) 權重（大戶最能代表主力）
+    W_MARGIN = 1.0           # 散戶退場(融資減%) 權重
+    TOP_N = 25
+    BRANCH_ENRICH_N = 10      # 有分點時，對前幾檔加抓分點主力進出
+
+
 # --- 地雷偵測（財務+籌碼+技術 紅旗）門檻 ---
 class LANDMINE:
     # 財務面（FinMind 綜合損益表/月營收）

@@ -85,6 +85,7 @@ class Console:
 
         self._section(p, "單軌 / 研究")
         self._btn(p, "🚀 月營收動能T12", lambda: self.run(["scripts.run_t12"], "月營收動能"), "#e8fbef")
+        self._btn(p, "🏦 主力籌碼排行", lambda: self.run(["scripts.run_mainforce"], "主力籌碼"), "#eef4ff")
         self._btn(p, "🟢 長期價值", lambda: self.run(["scripts.run_longterm"], "長期價值"))
         self._btn(p, "🔴 當沖候選", lambda: self.run(["scripts.run_daytrade"], "當沖候選"))
         self._btn(p, "🔬 基本面深掘", lambda: self.run(["scripts.run_t30"], "深掘"))
@@ -116,6 +117,7 @@ class Console:
         self._btn(p, "📋 查看持股損益", lambda: self.run(["scripts.portfolio"], "查看持股"))
         self._btn(p, "🧮 風控試算(需代號)", self.risk_calc)
         self._btn(p, "🧨 排雷(此代號)", self.landmine_one)
+        self._btn(p, "🏦 查籌碼(此代號)", self.mainforce_one)
 
     # ---- 動作 ----
     def add_holding(self):
@@ -151,6 +153,13 @@ class Console:
             self.log("⚠️ 排雷需填代號（或用左側「地雷偵測(持股)」檢查全部持股）\n")
             return
         self.run(["scripts.run_landmine", "--stocks", sid], f"排雷 {sid}")
+
+    def mainforce_one(self):
+        sid = self.e["sid"].get().strip()
+        if not sid:
+            self.log("⚠️ 查籌碼需填代號（或用左側「主力籌碼排行」看全市場）\n")
+            return
+        self.run(["scripts.run_mainforce", "--stocks", sid], f"查籌碼 {sid}")
 
     def open_reports(self):
         d = ROOT / "reports" / "screener"
