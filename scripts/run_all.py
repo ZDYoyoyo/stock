@@ -57,6 +57,37 @@ def _asof_note(df, kind):
     return f"資料截至 {asof}"
 
 
+def _today_px():
+    """回傳 {sid: (今日收盤, 今日漲跌%)}，取最新交易日 vs 前一日。"""
+    import pandas as pd
+    from src.db import connect
+    with connect() as conn:
+        px = pd.read_sql("SELECT date, stock_id, close FROM price", conn)
+    if px.empty:
+        return {}
+    dates = sorted(px["date"].unique())
+    last = dates[-1]
+    prev = dates[-2] if len(dates) >= 2 else None
+    cur = px[px["date"] == last].set_index("stock_id")["close"]
+    pv = px[px["date"] == prev].set_index("stock_id")["close"] if prev else None
+    out = {}
+    for sid, c in cur.items():
+        chg = None
+        if pv is not None and sid in pv.index and pv[sid] > 0:
+            chg = round((c - pv[sid]) / pv[sid] * 100, 2)
+        out[sid] = (round(c, 2), chg)
+    return out
+
+
+def _add_today(df, tpx):
+    """把今日收盤/今日漲跌% 併進 df（依 stock_id）。"""
+    if df is None or df.empty or "stock_id" not in df.columns:
+        return df
+    df["今日收盤"] = df["stock_id"].map(lambda s: tpx.get(s, (None, None))[0])
+    df["今日漲跌%"] = df["stock_id"].map(lambda s: tpx.get(s, (None, None))[1])
+    return df
+
+
 def _landmine_warn(f, df, label="T11 候選"):
     """清單若有高風險（🔴/🟠），列出紅旗提醒（選股當下就看到雷）。"""
     if df is None or df.empty or "風險" not in df.columns:
@@ -181,6 +212,11 @@ def main():
     from src import portfolio as pf
     pf_view, pf_summary = pf.status()
 
+    # 五個清單統一併入「今日收盤 + 今日漲跌%」（波段判斷：一眼看今天在漲還在殺）
+    tpx = _today_px()
+    for d in (df11, df16, df12, dflt, dfdt):
+        _add_today(d, tpx)
+
     # 資料日期說明（避免區間值/基準日收盤被誤讀成單日/最新日）
     note11 = _asof_note(df11, "t11")
     note16 = _asof_note(df16, "t16")
@@ -198,12 +234,13 @@ def main():
         f.write(f"- 全球：{' ｜ '.join(gm.summary_lines(glob))}\n")
 
         _section(f, "🟡 波段｜T11 法人吸貨（上市投信/上櫃外資）", df11,
-                 ["stock_id", "name", "market", "investor", "close",
+                 ["stock_id", "name", "market", "investor", "close", "今日收盤", "今日漲跌%",
                   "price_gain_%", "consec_buy_days", "buy_ratio_%", "千張大戶%", "風險", "score"],
                  note=note11)
         _landmine_warn(f, df11)
         _section(f, "🟡 波段｜T16 抗跌強勢", df16,
-                 ["stock_id", "name", "market", "return_%", "vs_market_%", "風險"], note=note16)
+                 ["stock_id", "name", "market", "今日收盤", "今日漲跌%",
+                  "return_%", "vs_market_%", "風險"], note=note16)
         _landmine_warn(f, df16, "T16 強勢榜")
         if not df11.empty and not df16.empty:
             both = set(df11["stock_id"]) & set(df16["stock_id"])
@@ -212,13 +249,13 @@ def main():
             f.write("".join(f"- {s} {nm.get(s,'')}\n" for s in both) if both else "（無）\n")
 
         _section(f, "🚀 成長｜T12 月營收動能（YoY強+近月加速）", df12,
-                 ["stock_id", "name", "market", "產業", "close", "YoY%",
+                 ["stock_id", "name", "market", "產業", "今日收盤", "今日漲跌%", "YoY%",
                   "累計YoY%", "加速度", "站上20MA", "score"], n=20)
         _section(f, "🟢 長期｜價值+成長+配息", dflt,
-                 ["stock_id", "name", "產業", "close", "殖利率%", "PER",
+                 ["stock_id", "name", "產業", "今日收盤", "今日漲跌%", "殖利率%", "PER",
                   "ROE估%", "營收YoY%", "連配息年", "score"], skipped=args.skip_longterm)
         _section(f, "🔴 當沖候選｜高波動+高流動（盤中盯，非即時訊號）", dfdt,
-                 ["stock_id", "name", "market", "close", "當日振幅%", "均振幅%", "量能倍數"],
+                 ["stock_id", "name", "market", "今日收盤", "今日漲跌%", "當日振幅%", "均振幅%", "量能倍數"],
                  note=notedt)
         if not pf_view.empty:
             f.write(f"\n## 📋 我的持股（總損益 {pf_summary['總損益']:+,}"
@@ -230,22 +267,23 @@ def main():
     nm = df11.set_index("stock_id")["name"].to_dict() if not df11.empty else {}
     blocks = [
         {"title": "🟡 波段｜T11 法人吸貨（上市投信/上櫃外資）", "df": df11, "note": note11,
-         "cols": ["stock_id", "name", "market", "investor", "close", "price_gain_%",
-                  "consec_buy_days", "buy_ratio_%", "千張大戶%", "風險", "紅旗", "score"],
-         "signed": ["price_gain_%"], "after_intersection": True},
+         "cols": ["stock_id", "name", "market", "investor", "close", "今日收盤", "今日漲跌%",
+                  "price_gain_%", "consec_buy_days", "buy_ratio_%", "千張大戶%", "風險", "紅旗", "score"],
+         "signed": ["今日漲跌%", "price_gain_%"], "after_intersection": True},
         {"title": "🟡 波段｜T16 抗跌強勢", "df": df16, "note": note16,
-         "cols": ["stock_id", "name", "market", "return_%", "vs_market_%", "風險", "紅旗"],
-         "signed": ["return_%", "vs_market_%"]},
+         "cols": ["stock_id", "name", "market", "今日收盤", "今日漲跌%",
+                  "return_%", "vs_market_%", "風險", "紅旗"],
+         "signed": ["今日漲跌%", "return_%", "vs_market_%"]},
         {"title": "🚀 成長｜T12 月營收動能（YoY強+近月加速）", "df": df12,
-         "cols": ["stock_id", "name", "market", "產業", "close", "YoY%",
+         "cols": ["stock_id", "name", "market", "產業", "今日收盤", "今日漲跌%", "YoY%",
                   "累計YoY%", "MoM%", "加速度", "站上20MA", "score"],
-         "signed": ["YoY%", "累計YoY%", "MoM%", "加速度"]},
+         "signed": ["今日漲跌%", "YoY%", "累計YoY%", "MoM%", "加速度"]},
         {"title": "🟢 長期｜價值+成長+配息", "df": dflt, "skipped": args.skip_longterm,
-         "cols": ["stock_id", "name", "產業", "close", "殖利率%", "PER", "ROE估%",
-                  "營收YoY%", "連配息年", "score"], "signed": ["營收YoY%"]},
+         "cols": ["stock_id", "name", "產業", "今日收盤", "今日漲跌%", "殖利率%", "PER", "ROE估%",
+                  "營收YoY%", "連配息年", "score"], "signed": ["今日漲跌%", "營收YoY%"]},
         {"title": "🔴 當沖候選｜高波動+高流動（盤中盯，非即時訊號）", "df": dfdt, "note": notedt,
-         "cols": ["stock_id", "name", "market", "close", "當日振幅%", "均振幅%", "量能倍數"],
-         "signed": []},
+         "cols": ["stock_id", "name", "market", "今日收盤", "今日漲跌%", "當日振幅%", "均振幅%", "量能倍數"],
+         "signed": ["今日漲跌%"]},
     ]
     if not pf_view.empty:
         blocks.append({
