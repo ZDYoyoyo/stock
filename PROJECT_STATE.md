@@ -8,6 +8,12 @@
 - `gui.py`：tkinter 圖形控制台（點按執行所有功能，Windows 內建 tkinter 免安裝）。
 - `一鍵執行/*.bat`：啟動控制台 + 盤後選股/盤中守衛/更新千張/更新程式。
 
+## 🤖 每日自動化（重要，換 session 先看）
+- **雲端每日排程已建**：每交易日台灣 19:00 開新 session 跑「每日管線」並推播。
+- 設定與**接手 session 指引**見 `docs/自動化設定.md`（含雲端 secret、本機 Windows 排程）。
+- secret（FINMIND_TOKEN / TELEGRAM_*）走**環境變數**，不在 git；讀不到就是使用者還沒設。
+- 每日管線：`run_all --notify` +（有持股）`run_landmine --holdings` + `run_mainforce`。
+
 ## 一、這個專案是什麼
 個人台股研究系統：整合盤面/基本面/籌碼面，建立可重複運作的**選股篩選器**、
 **每日盤後掃描**與**回測驗證**。⚠️ 全部研究/教育用途，非投資建議。
