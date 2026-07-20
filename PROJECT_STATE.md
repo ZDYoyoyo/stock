@@ -77,6 +77,7 @@ src/
 scripts/
   update_data.py       # 抓資料進 DB（--market all/twse/tpex, --days N）
   sync_data.py         # CSV歷史⇄DB（load/dump；雲端每日累積，配 src/datastore.py）
+  run_morning.py       # 🌅 盤前快報（環境+全球/費半，開盤前看；GUI按鈕）
   run_all.py           # ★ 一鍵跑全部：環境+三軌，輸出單一整合報告
   daily_scan.py        # 波段：環境紅綠燈+全球 + T11 + T16 + 交集
   run_daytrade.py      # 當沖候選

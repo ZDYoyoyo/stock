@@ -75,6 +75,7 @@ class Console:
 
     def _buttons(self, p):
         self._section(p, "每日")
+        self._btn(p, "🌅 盤前快報(環境+費半)", lambda: self.run(["scripts.run_morning"], "盤前快報"), "#fff7e6")
         self._btn(p, "📊 盤後選股+推播", lambda: self.run(["scripts.run_all", "--notify"], "盤後選股"), "#e8f0fe")
         self._btn(p, "⚡ 快速選股(略長期)", lambda: self.run(["scripts.run_all", "--skip-longterm", "--notify"], "快速選股"), "#e8f0fe")
         self._btn(p, "🛡️ 盤中持股守衛", lambda: self.run(["scripts.monitor_portfolio"], "盤中守衛"), "#fef3e8")
