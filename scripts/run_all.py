@@ -30,6 +30,8 @@ from src.screeners import long_term_value as lt
 from src.screeners import revenue_momentum as t12
 from src.screeners import landmine
 
+_T16_SHOW = 15   # T16 抗跌強勢顯示/排雷檔數
+
 
 def _update(days: int):
     print(f"[更新] 抓最近 {days} 天資料 …")
@@ -55,14 +57,14 @@ def _asof_note(df, kind):
     return f"資料截至 {asof}"
 
 
-def _landmine_warn(f, df11):
-    """T11 候選若有高風險（🔴/🟠），列出紅旗提醒（選股當下就看到雷）。"""
-    if df11 is None or df11.empty or "風險" not in df11.columns:
+def _landmine_warn(f, df, label="T11 候選"):
+    """清單若有高風險（🔴/🟠），列出紅旗提醒（選股當下就看到雷）。"""
+    if df is None or df.empty or "風險" not in df.columns:
         return
-    hi = df11[df11["風險"].astype(str).str.contains("嚴重|高", na=False)]
+    hi = df[df["風險"].astype(str).str.contains("嚴重|高", na=False)]
     if hi.empty:
         return
-    f.write("\n> 🧨 **T11 候選排雷提醒**（財務/籌碼/技術紅旗，建議先避開或查清）：\n")
+    f.write(f"\n> 🧨 **{label}排雷提醒**（財務/籌碼/技術紅旗，建議先避開或查清）：\n")
     for r in hi.itertuples():
         flags = getattr(r, "紅旗", "") or ""
         f.write(f"> - {r.stock_id} {r.name}：{r.風險}　{flags}\n")
@@ -100,12 +102,16 @@ def _summary(today, reg, glob, df11, df16, inter, dflt, df12=None, pf_view=None,
         top = df11.head(3)
         lines.append("🟡 波段T11 前3：" +
                      "、".join(f"{r.stock_id} {r.name}" for r in top.itertuples()))
-        # T11 候選若有高風險地雷，提醒
-        if "風險" in df11.columns:
-            hi = df11[df11["風險"].astype(str).str.contains("嚴重|高", na=False)]
-            if not hi.empty:
-                lines.append("🧨 <b>T11 排雷警示</b>：" +
-                             "、".join(f"{r.stock_id} {r.name}({r.風險})" for r in hi.itertuples()))
+    # 波段候選（T11+T16）若有高風險地雷，合併提醒
+    import pandas as _pd
+    parts = [d[["stock_id", "name", "風險"]] for d in (df11, df16)
+             if d is not None and not d.empty and "風險" in d.columns]
+    if parts:
+        allrisk = _pd.concat(parts).drop_duplicates("stock_id")
+        hi = allrisk[allrisk["風險"].astype(str).str.contains("嚴重|高", na=False)]
+        if not hi.empty:
+            lines.append("🧨 <b>波段排雷警示</b>：" +
+                         "、".join(f"{r.stock_id} {r.name}({r.風險})" for r in hi.itertuples()))
     if df12 is not None and not df12.empty:
         top = df12.head(3)
         lines.append("🚀 營收動能T12 前3：" +
@@ -123,7 +129,7 @@ def main():
     ap.add_argument("--no-update", action="store_true")
     ap.add_argument("--skip-longterm", action="store_true")
     ap.add_argument("--notify", action="store_true", help="把摘要推播到手機（Telegram/Email，需設 .env）")
-    ap.add_argument("--skip-landmine", action="store_true", help="略過 T11 候選排雷（省 FinMind 呼叫、加快）")
+    ap.add_argument("--skip-landmine", action="store_true", help="略過波段候選(T11+T16)排雷（省 FinMind 呼叫、加快）")
     ap.add_argument("--days", type=int, default=12)
     args = ap.parse_args()
 
@@ -143,15 +149,23 @@ def main():
     bh = big_holders_map()
     if not df11.empty:
         df11["千張大戶%"] = df11["stock_id"].map(bh)
-        # 對 T11 候選就地排雷（清單小，FinMind 成本低）→ 選股當下就看到雷
-        if not args.skip_landmine:
-            print("[排雷] 掃 T11 候選 …")
-            lm = landmine.scan(df11["stock_id"].tolist(), verbose=False)
+    # 對波段候選就地排雷：T11 全部 + T16 前 15（地雷常躲在強勢榜=價強地雷）
+    # 掃聯集一次，成本低，再把風險標回兩張表
+    if not args.skip_landmine:
+        ids = list(df11["stock_id"]) if not df11.empty else []
+        if not df16.empty:
+            ids += df16["stock_id"].head(_T16_SHOW).tolist()
+        ids = list(dict.fromkeys(ids))   # 去重保序
+        if ids:
+            print(f"[排雷] 掃波段候選 {len(ids)} 檔（T11+T16強勢）…")
+            lm = landmine.scan(ids, verbose=False)
             if not lm.empty:
                 rmap = lm.set_index("stock_id")["風險級"].to_dict()
                 fmap = lm.set_index("stock_id")["紅旗"].to_dict()
-                df11["風險"] = df11["stock_id"].map(rmap)
-                df11["紅旗"] = df11["stock_id"].map(fmap)
+                for d in (df11, df16):
+                    if not d.empty:
+                        d["風險"] = d["stock_id"].map(rmap)
+                        d["紅旗"] = d["stock_id"].map(fmap)
     print("[成長] T12 月營收動能 …")
     try:
         df12 = t12.run()
@@ -189,7 +203,8 @@ def main():
                  note=note11)
         _landmine_warn(f, df11)
         _section(f, "🟡 波段｜T16 抗跌強勢", df16,
-                 ["stock_id", "name", "market", "return_%", "vs_market_%"], note=note16)
+                 ["stock_id", "name", "market", "return_%", "vs_market_%", "風險"], note=note16)
+        _landmine_warn(f, df16, "T16 強勢榜")
         if not df11.empty and not df16.empty:
             both = set(df11["stock_id"]) & set(df16["stock_id"])
             f.write("\n### ⭐ 波段雙訊號交集（法人買且抗跌）\n\n")
@@ -219,7 +234,7 @@ def main():
                   "consec_buy_days", "buy_ratio_%", "千張大戶%", "風險", "紅旗", "score"],
          "signed": ["price_gain_%"], "after_intersection": True},
         {"title": "🟡 波段｜T16 抗跌強勢", "df": df16, "note": note16,
-         "cols": ["stock_id", "name", "market", "return_%", "vs_market_%"],
+         "cols": ["stock_id", "name", "market", "return_%", "vs_market_%", "風險", "紅旗"],
          "signed": ["return_%", "vs_market_%"]},
         {"title": "🚀 成長｜T12 月營收動能（YoY強+近月加速）", "df": df12,
          "cols": ["stock_id", "name", "market", "產業", "close", "YoY%",
