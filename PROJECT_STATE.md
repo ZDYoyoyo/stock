@@ -12,7 +12,10 @@
 - **雲端每日排程已建**：每交易日台灣 19:00 開新 session 跑「每日管線」並推播。
 - 設定與**接手 session 指引**見 `docs/自動化設定.md`（含雲端 secret、本機 Windows 排程）。
 - secret（FINMIND_TOKEN / TELEGRAM_*）走**環境變數**，不在 git；讀不到就是使用者還沒設。
-- 每日管線：`run_all --notify` +（有持股）`run_landmine --holdings` + `run_mainforce`。
+- 每日管線：`sync_data load` → `run_all --notify` +（有持股）`run_landmine --holdings`
+  + `run_mainforce` → `sync_data dump` → commit `data/history`。
+- **資料持久化**：`data/stock.db` 仍 gitignore；歷史以 CSV 存 `data/history/*.csv`（進 git，
+  由 src/datastore.py + scripts/sync_data.py 管理）→ 雲端每天累積價量/法人/融資/千張趨勢。
 
 ## 一、這個專案是什麼
 個人台股研究系統：整合盤面/基本面/籌碼面，建立可重複運作的**選股篩選器**、
@@ -73,6 +76,7 @@ src/
     landmine.py                    # 🧨 地雷偵測（財務+籌碼+技術紅旗，排雷用）
 scripts/
   update_data.py       # 抓資料進 DB（--market all/twse/tpex, --days N）
+  sync_data.py         # CSV歷史⇄DB（load/dump；雲端每日累積，配 src/datastore.py）
   run_all.py           # ★ 一鍵跑全部：環境+三軌，輸出單一整合報告
   daily_scan.py        # 波段：環境紅綠燈+全球 + T11 + T16 + 交集
   run_daytrade.py      # 當沖候選

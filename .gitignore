@@ -1,6 +1,9 @@
 __pycache__/
 *.pyc
 .env
-data/
+data/*
+!data/history/
+data/history/*
+!data/history/*.csv
 reports/screener/
 .venv/
