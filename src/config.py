@@ -43,22 +43,22 @@ class LONGTERM:
 # --- 當沖候選（EOD 掃描，非即時）門檻 ---
 class DAYTRADE:
     LOOKBACK_DAYS = 20
-    MIN_AVG_VOLUME = 3000      # 上市日均量下限(張)：當沖需高流動性
-    MIN_AVG_VOLUME_TPEX = 2000 # 上櫃
-    MIN_AVG_AMPLITUDE = 3.0    # 平均日振幅下限(%)：要夠波動才有價差可做
+    MIN_AVG_VOLUME = 5000      # 上市日均量下限(張)：當沖需高流動性（收緊自3000）
+    MIN_AVG_VOLUME_TPEX = 3000 # 上櫃（收緊自2000）
+    MIN_AVG_AMPLITUDE = 4.5    # 平均日振幅下限(%)：要夠波動才有價差可做（收緊自3.0）
     VOL_SURGE = 1.5            # 當日量 / 20日均量 倍數（爆量門檻，用於加分非硬篩）
 
 
 # --- T12 月營收動能股（全市場官方月營收 OpenAPI）門檻 ---
 class T12:
-    MIN_YOY = 15.0            # 最新月營收 YoY 下限(%)
+    MIN_YOY = 30.0            # 最新月營收 YoY 下限(%)：只要成長明顯的（收緊自15）
     MAX_YOY = 300.0          # YoY 上限：>此值多為基期效應(去年同月近0)雜訊，排除
-    MIN_CUM_YOY = 5.0         # 累計營收 YoY 下限(%)：避免單月一次性暴衝
+    MIN_CUM_YOY = 10.0        # 累計營收 YoY 下限(%)：避免單月一次性暴衝（收緊自5）
     MAX_CUM_YOY = 200.0      # 累計 YoY 上限：同樣濾基期爆表
-    MIN_ACCEL = 0.0          # 加速度=單月YoY−累計YoY，>此值代表近月動能加速
+    MIN_ACCEL = 5.0          # 加速度=單月YoY−累計YoY，需明顯加速（收緊自0）
     REQUIRE_ACCEL = True      # 是否硬性要求加速（False 則只當加分）
     MIN_CLOSE = 10.0          # 股價下限，濾雞蛋水餃股
-    MIN_AVG_VOLUME = 300      # 日均量下限(張)：要有基本流動性
+    MIN_AVG_VOLUME = 500      # 日均量下限(張)：要有基本流動性（收緊自300）
     ABOVE_MA20_BONUS = True   # 股價站上20MA（市場也認同）加分
     # 營收認列不規律產業（營建完工才認列，YoY 失真）→ 直接排除（不是動能股該用的濾網）
     EXCLUDE_INDUSTRIES = ("建材營造", "營建")

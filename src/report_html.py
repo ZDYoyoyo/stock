@@ -123,7 +123,11 @@ def build(today, reg, glob_lines, sox, blocks, intersection=None) -> str:
         elif df is None or df.empty:
             body += "<p>（今日無符合條件標的）</p>"
         else:
-            body += _table(df, b["cols"], b.get("signed", []))
+            n = b.get("n")
+            shown = df.head(n) if n else df
+            body += _table(shown, b["cols"], b.get("signed", []))
+            if n and len(df) > n:
+                body += f'<p class="note">（僅顯示前 {n} 名，共 {len(df)} 檔符合；完整清單見 CSV/終端機）</p>'
         if b.get("after_intersection") and intersection is not None:
             names = "、".join(intersection) if intersection else "（無）"
             body += f'<div class="star">⭐ 雙訊號交集（法人買且抗跌）：{names}</div>'
