@@ -9,7 +9,7 @@
 - `一鍵執行/*.bat`：啟動控制台 + 盤後選股/盤中守衛/更新千張/更新程式。
 
 ## 🤖 每日自動化（重要，換 session 先看）
-- **雲端每日排程已建**：每交易日台灣 19:00 開新 session 跑「每日管線」並推播。
+- **雲端每日排程已建**：每交易日台灣 22:00 開新 session 跑「每日管線」並推播（22:00 = 法人 T86 + 融資融券餘額都已公布，資料一次到齊）。
 - 設定與**接手 session 指引**見 `docs/自動化設定.md`（含雲端 secret、本機 Windows 排程）。
 - secret（FINMIND_TOKEN / TELEGRAM_*）走**環境變數**，不在 git；讀不到就是使用者還沒設。
 - 每日管線：`sync_data load` → `run_all --notify` +（有持股）`run_landmine --holdings`
