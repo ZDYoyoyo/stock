@@ -4,6 +4,6 @@ numpy>=1.24
 python-dotenv>=1.0
 tabulate>=0.9
 
-# 選配：永豐金 Shioaji 盤中即時報價（沒裝也能跑，自動退回免費 TWSE MIS）
-# pip install shioaji
+# Optional: SinoPac Shioaji intraday realtime quotes (works without it; falls back to free TWSE MIS)
+# Install manually if needed:  pip install shioaji
 # shioaji>=1.2
