@@ -105,20 +105,54 @@ class Console:
         f = tk.Frame(p)
         f.pack(fill="x")
         self.e = {}
+        # 每欄右側灰字提示：單位/是否必填，一眼就懂
+        hints = {"sid": "如2330 必", "lots": "張 1張=1000股 必", "price": "每股價 必",
+                 "stop": "每股價 選填", "target": "每股價 選填"}
         for label, key in [("代號", "sid"), ("張數", "lots"), ("成本", "price"),
                            ("停損", "stop"), ("停利", "target")]:
             row = tk.Frame(f)
             row.pack(fill="x", pady=1)
             tk.Label(row, text=label, font=FONT, width=4, anchor="w").pack(side="left")
-            ent = tk.Entry(row, font=FONT, width=12)
-            ent.pack(side="left", fill="x", expand=True)
+            ent = tk.Entry(row, font=FONT, width=8)
+            ent.pack(side="left")
+            tk.Label(row, text=hints[key], font=("Microsoft JhengHei", 7), fg="#999",
+                     anchor="w").pack(side="left", padx=(3, 0))
             self.e[key] = ent
-        self._btn(p, "➕ 記錄持股", self.add_holding)
+        tk.Label(f, text="「必」=必填。詳細用法點下方 ❓填寫說明",
+                 font=("Microsoft JhengHei", 7), fg="#888",
+                 wraplength=200, justify="left").pack(anchor="w", pady=(2, 3))
+        self._btn(p, "❓ 填寫說明", self.show_help, "#f0f0f0")
+        self._btn(p, "➕ 記錄持股(已買)", self.add_holding)
         self._btn(p, "➖ 移除持股", self.remove_holding)
         self._btn(p, "📋 查看持股損益", lambda: self.run(["scripts.portfolio"], "查看持股"))
-        self._btn(p, "🧮 風控試算(需代號)", self.risk_calc)
+        self._btn(p, "🧮 風控試算(算買幾張)", self.risk_calc)
         self._btn(p, "🧨 排雷(此代號)", self.landmine_one)
         self._btn(p, "🏦 查籌碼(此代號)", self.mainforce_one)
+
+    def show_help(self):
+        self.log(
+            "\n" + "=" * 50 + "\n❓ 持股 / 風控 欄位填寫說明\n" + "=" * 50 + "\n"
+            "上面 5 個欄位是「共用」的，配不同按鈕做不同事：\n\n"
+            "【A. 已經買了 → 追蹤損益】按「➕ 記錄持股(已買)」\n"
+            "  代號 = 股票代號，如 2330            (必填)\n"
+            "  張數 = 幾張，1張=1000股；零股填小數  (必填)\n"
+            "  成本 = 你的每股買入均價，如 1000     (必填)\n"
+            "  停損 = 每股停損價，如 950           (選填，建議填)\n"
+            "  停利 = 每股停利價，如 1100          (選填)\n"
+            "  → 填完按 ➕；再按「📋 查看持股損益」看即時損益。\n"
+            "  → 有填停損，「🛡️盤中持股守衛」才會在觸價時提醒你。\n\n"
+            "【B. 還沒買 → 想算該買幾張】按「🧮 風控試算」\n"
+            "  只需填『代號』一個，其餘欄位它不看。\n"
+            "  它用 資金100萬、單筆風險1.5%、ATR停損 幫你算出：\n"
+            "  建議進場/停損/停利價 + 建議張數 + 最大虧損。\n"
+            "  (這是買『之前』算部位大小，跟記錄持股是兩回事)\n\n"
+            "【只需填代號的按鈕】➖移除持股、🧨排雷、🏦查籌碼。\n\n"
+            "── 完整範例 ──\n"
+            "想買台積電 → 填 代號=2330 → 按🧮風控試算 → 它說買2張、\n"
+            "停損950 → 你下單買2張@1000 → 填 張數=2 成本=1000 停損=950\n"
+            "→ 按➕記錄持股 → 之後按📋查看持股損益 追蹤。\n"
+            "持股存於 data/portfolio.csv（可用 Excel 直接編輯，不上傳）。\n"
+            + "=" * 50 + "\n")
 
     # ---- 動作 ----
     def add_holding(self):
