@@ -204,6 +204,7 @@ def main():
         df12 = None
     print("[當沖] 候選掃描 …")
     dfdt = daytrade.run()
+    dfdt = daytrade.add_bias(dfdt, reg)   # 加多空傾向+與大盤（開盤前定調方向）
     dflt = None
     if not args.skip_longterm:
         print("[長期] 價值+成長+配息（較慢）…")
@@ -225,7 +226,8 @@ def main():
     # 資料日期說明（避免區間值/基準日收盤被誤讀成單日/最新日）
     note11 = _asof_note(df11, "t11")
     note16 = _asof_note(df16, "t16")
-    notedt = _asof_note(dfdt, "daytrade") + "。" + report_html.DAYTRADE_NOTE
+    notedt = (_asof_note(dfdt, "daytrade") + "。" + report_html.DAYTRADE_NOTE
+              + " " + report_html.BIAS_NOTE)
 
     OUTPUT_DIR.mkdir(parents=True, exist_ok=True)
     today = date.today().isoformat()
@@ -260,7 +262,8 @@ def main():
                  ["stock_id", "name", "產業", "今日收盤", "今日漲跌%", "殖利率%", "PER",
                   "ROE估%", "營收YoY%", "連配息年", "score"], skipped=args.skip_longterm)
         _section(f, "🔴 當沖候選｜高波動+高流動（盤中盯，非即時訊號）", dfdt,
-                 ["stock_id", "name", "market", "今日收盤", "今日漲跌%", "當日振幅%", "均振幅%", "量能倍數"],
+                 ["stock_id", "name", "market", "今日收盤", "今日漲跌%", "多空傾向", "與大盤",
+                  "當日振幅%", "均振幅%", "量能倍數"],
                  note=notedt)
         if not pf_view.empty:
             f.write(f"\n## 📋 我的持股（總損益 {pf_summary['總損益']:+,}"
@@ -288,7 +291,8 @@ def main():
          "cols": ["stock_id", "name", "產業", "今日收盤", "今日漲跌%", "殖利率%", "PER", "ROE估%",
                   "營收YoY%", "連配息年", "score"], "signed": ["今日漲跌%", "營收YoY%"]},
         {"title": "🔴 當沖候選｜高波動+高流動（盤中盯，非即時訊號）", "df": dfdt, "note": notedt, "n": 20,
-         "cols": ["stock_id", "name", "market", "今日收盤", "今日漲跌%", "當日振幅%", "均振幅%", "量能倍數"],
+         "cols": ["stock_id", "name", "market", "今日收盤", "今日漲跌%", "多空傾向", "與大盤",
+                  "當日振幅%", "均振幅%", "量能倍數"],
          "signed": ["今日漲跌%"]},
     ]
     if not pf_view.empty:
