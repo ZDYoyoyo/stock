@@ -115,7 +115,8 @@ def _section(f, title, df, cols, n=15, skipped=False, note=None):
         f.write(disp.to_markdown(index=False) + "\n")
 
 
-def _summary(today, reg, glob, df11, df16, inter, dflt, df12=None, pf_view=None, pf_summary=None):
+def _summary(today, reg, glob, df11, df16, inter, dflt, df12=None, pf_view=None,
+             pf_summary=None, dfdt=None):
     """給推播用的精簡摘要（純文字，含 HTML 粗體）。"""
     lines = [f"<b>📈 台股每日報告 {today}</b>",
              f"🚦 {regime_mod.summary_line(reg)}",
@@ -151,6 +152,18 @@ def _summary(today, reg, glob, df11, df16, inter, dflt, df12=None, pf_view=None,
         top = dflt.head(3)
         lines.append("🟢 長期 前3：" +
                      "、".join(f"{r.stock_id} {r.name}" for r in top.itertuples()))
+    # 當沖：優先報「順勢」候選（與大盤同向、勝率較高）；中性盤則報前3並帶傾向
+    if dfdt is not None and not dfdt.empty and "多空傾向" in dfdt.columns:
+        trend = dfdt[dfdt["與大盤"] == "順勢"].head(4)
+        if not trend.empty:
+            dir_tag = str(trend.iloc[0]["多空傾向"])
+            action = "找空" if "偏空" in dir_tag else "找買"
+            names = "、".join(f"{r.stock_id} {r.name}" for r in trend.itertuples())
+            lines.append(f"⚡ <b>當沖順勢({dir_tag}{action})</b>：{names}")
+        else:
+            top = dfdt.head(3)
+            names = "、".join(f"{r.stock_id} {r.name}{r.多空傾向}" for r in top.itertuples())
+            lines.append(f"⚡ 當沖前3：{names}")
     lines.append("\n完整報告見 reports/screener/（.html 用瀏覽器開）")
     return "\n".join(x for x in lines if x is not None)
 
@@ -315,7 +328,7 @@ def main():
 
     if args.notify:
         from src.notify import notify
-        ok, ch, detail = notify(_summary(today, reg, glob, df11, df16, inter, dflt, df12, pf_view, pf_summary),
+        ok, ch, detail = notify(_summary(today, reg, glob, df11, df16, inter, dflt, df12, pf_view, pf_summary, dfdt),
                                 subject=f"台股每日報告 {today}", file_path=str(html_path))
         print(f"   📲 推播（{ch}）：{'成功' if ok else '失敗 - ' + detail}")
 
