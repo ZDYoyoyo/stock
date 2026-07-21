@@ -207,7 +207,12 @@ def main():
     dflt = None
     if not args.skip_longterm:
         print("[長期] 價值+成長+配息（較慢）…")
-        dflt = lt.run(verbose=False)
+        try:
+            dflt = lt.run(verbose=False)
+        except SystemExit as e:
+            # 長期軌資料源（TWSE 估值）一時抓不到不該讓整份日報產不出來 → 優雅降級
+            print(f"   ⚠️ 長期軌略過（{e}）")
+            dflt = None
 
     from src import portfolio as pf
     pf_view, pf_summary = pf.status()

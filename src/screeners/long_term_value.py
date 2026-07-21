@@ -25,21 +25,32 @@ from .. import twse_client as tw
 from ..enrich import dividend_years, _revenue_yoy, eps_ttm_growth, industry_map
 
 
-def _latest_trading_day() -> str:
+def _recent_trading_days(n: int = 5) -> list[str]:
+    """DB 中最近 n 個交易日（YYYYMMDD），新到舊。"""
     with connect() as conn:
-        r = pd.read_sql("SELECT MAX(date) d FROM price", conn)
-    d = r["d"].iloc[0]
-    return d.replace("-", "") if d else None
+        r = pd.read_sql(f"SELECT DISTINCT date FROM price ORDER BY date DESC LIMIT {n}", conn)
+    return [d.replace("-", "") for d in r["date"].tolist()]
+
+
+def _valuation_latest(verbose: bool = True):
+    """抓最新可得的 TWSE 估值。今日 BWIBBU 常在盤後較晚才公布，
+    盤中/傍晚跑會抓不到 → 自動回退到前一交易日（估值日間幾乎不變，粗篩無損）。"""
+    days = _recent_trading_days()
+    for i, ymd in enumerate(days):
+        val = tw.valuation(ymd)
+        if val:
+            if i > 0 and verbose:
+                print(f"（{days[0]} 估值尚未公布，改用前一交易日 {ymd}）")
+            return ymd, val
+    return None, []
 
 
 def run(verbose: bool = True) -> pd.DataFrame:
-    ymd = _latest_trading_day()
+    ymd, val = _valuation_latest(verbose)
     if not ymd:
         raise SystemExit("DB 無價格資料，請先 update_data")
-
-    val = tw.valuation(ymd)
     if not val:
-        raise SystemExit("抓不到 TWSE 估值資料（BWIBBU）")
+        raise SystemExit("抓不到 TWSE 估值資料（BWIBBU；近5日皆無）")
 
     # 第一段：估值粗篩 + ROE 估算硬門檻
     coarse = []
