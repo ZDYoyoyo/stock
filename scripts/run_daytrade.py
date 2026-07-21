@@ -32,7 +32,7 @@ def main():
         f.write("> ⚠️ 盤後掃描非即時訊號，僅縮小盤中要盯的清單。當沖勝率低、成本高，非投資建議。\n")
         f.write("> 用法：盤中人工盯這幾檔的量價/五檔，有把握再做，嚴設當日停損。\n\n")
         f.write(report_html.rename_cn(df.head(25)).to_markdown(index=False))
-        f.write("\n")
+        f.write(f"\n\n> 📖 {report_html.DAYTRADE_NOTE}\n")
     print(f"\n✅ 已輸出：{path}")
 
 

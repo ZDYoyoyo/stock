@@ -225,7 +225,7 @@ def main():
     # 資料日期說明（避免區間值/基準日收盤被誤讀成單日/最新日）
     note11 = _asof_note(df11, "t11")
     note16 = _asof_note(df16, "t16")
-    notedt = _asof_note(dfdt, "daytrade")
+    notedt = _asof_note(dfdt, "daytrade") + "。" + report_html.DAYTRADE_NOTE
 
     OUTPUT_DIR.mkdir(parents=True, exist_ok=True)
     today = date.today().isoformat()
