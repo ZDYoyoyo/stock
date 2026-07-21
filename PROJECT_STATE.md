@@ -33,6 +33,9 @@
    - day_trade_candidates.py：盤後選高波動+高流動+爆量，縮小要盯的清單。
    - realtime.py + monitor_intraday.py：TWSE MIS 免開戶即時報價(~20秒延遲)，
      盤中盯盤並警示（接近漲跌停/急拉急殺/突破當日高低）。已測通。
+   - shioaji_client.py：永豐金 Shioaji 即時行情（選配升級，只用行情不下單）。
+     realtime.quote() 為 dispatcher：設了 SHIOAJI_API_KEY/SECRET 且裝了 shioaji 就
+     自動改用（更快更準），否則退回 MIS。⚠️ 欄位對應照官方文件寫、尚未對真帳戶實測。
    - ⬜ 僅剩**自動下單**未做：需券商 API（永豐 Shioaji / 富邦 Neo / 富果 Fugle 等，
      非限永豐；國泰證券查無成熟公開下單 API）。使用者決定後再接。
 

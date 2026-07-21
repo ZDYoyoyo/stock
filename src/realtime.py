@@ -29,7 +29,24 @@ def _num(x):
 
 
 def quote(stock_ids, market_map=None) -> list[dict]:
-    """回傳每檔即時報價 dict。stock_ids: list[str]。"""
+    """即時報價 dispatcher：有永豐金 Shioaji（更快更準）就用它，否則用免費 TWSE MIS。
+
+    回傳格式兩者一致，盤中模組（monitor_intraday/monitor_portfolio）無需改動即自動升級。
+    Shioaji 需 pip install shioaji + 設 SHIOAJI_API_KEY/SHIOAJI_SECRET_KEY，否則自動退回 MIS。
+    """
+    try:
+        from . import shioaji_client
+        if shioaji_client.available():
+            q = shioaji_client.quote(stock_ids, market_map)
+            if q:
+                return q
+    except Exception:
+        pass  # Shioaji 任何問題都靜默退回免費 MIS
+    return _quote_mis(stock_ids, market_map)
+
+
+def _quote_mis(stock_ids, market_map=None) -> list[dict]:
+    """TWSE MIS 免費即時報價（約 20 秒延遲、免開戶）。"""
     mm = market_map if market_map is not None else _market_map()
     chans = []
     for sid in stock_ids:
