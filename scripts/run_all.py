@@ -266,6 +266,7 @@ def main():
             f.write(f"\n## 📋 我的持股（總損益 {pf_summary['總損益']:+,}"
                     f"｜{pf_summary['總報酬%']:+.2f}%）\n\n")
             f.write(pf_view.to_markdown(index=False) + "\n")
+        f.write(f"\n---\n\n> {report_html.GLOSSARY}\n")
 
     # 同步輸出 HTML（表格永遠對齊、紅漲綠跌上色）
     both = (set(df11["stock_id"]) & set(df16["stock_id"])) if not df11.empty and not df16.empty else set()

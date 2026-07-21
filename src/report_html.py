@@ -27,12 +27,30 @@ COLUMN_LABELS = {
     "return_%": "區間漲幅%",
     "vs_market_%": "相對大盤%",
     "score": "評分",
+    # 財務面英文縮寫 → 中文（純英文欄給中文；底部另附術語小抄解釋概念）
+    "PER": "本益比",
+    "PBR": "股價淨值比",
+    "YoY%": "年增%",
+    "累計YoY%": "累計年增%",
+    "MoM%": "月增%",
+    "營收YoY%": "營收年增%",
 }
+
+# 財務術語小抄：給不熟英文縮寫的使用者，附在含財務欄位的報告底部（純文字，md/HTML 通用）。
+GLOSSARY = ("📖 術語小抄：本益比(PER)＝股價÷每股盈餘，數字越低越便宜；"
+            "年增(YoY)＝與去年同期比；月增(MoM)＝與上月比；"
+            "EPS＝每股盈餘(公司幫每股賺多少)；ROE＝股東權益報酬率(獲利能力，越高越好)；"
+            "股價淨值比(PBR)＝股價÷每股淨值。")
 
 
 def label(col: str) -> str:
     """欄位英文名 → 中文顯示名（沒定義的原樣顯示，已是中文的欄位不受影響）。"""
     return COLUMN_LABELS.get(col, col)
+
+
+def rename_cn(df):
+    """把 DataFrame 的英文欄名換成中文顯示名（供 to_markdown/to_string 直接輸出的獨立報告用）。"""
+    return df.rename(columns=COLUMN_LABELS)
 
 _CSS = """
 :root { color-scheme: light dark; }
@@ -138,5 +156,6 @@ def build(today, reg, glob_lines, sox, blocks, intersection=None) -> str:
 <body><div class="wrap">
 <h1>台股每日整合報告</h1><div class="sub">{today}　·　研究用途，非投資建議</div>
 {banner}{body}
+<p class="note" style="margin-top:18px">{GLOSSARY}</p>
 <div class="disclaimer">⚠️ 本報告為候選觀察名單，非投資建議。紅漲綠跌為台股慣例。</div>
 </div></body></html>"""

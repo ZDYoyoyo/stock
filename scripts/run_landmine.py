@@ -19,6 +19,7 @@ sys.path.insert(0, str(ROOT))
 
 from src.config import OUTPUT_DIR
 from src.screeners import landmine
+from src import report_html
 
 _LEVEL_ORDER = {"🟢 低": 0, "🟡 中": 1, "🟠 高": 2, "🔴 嚴重": 3}
 _LEVEL_ALIAS = {"低": 0, "中": 1, "高": 2, "嚴重": 3}
@@ -98,7 +99,7 @@ def main():
     if view.empty:
         print(f"（無風險≥{args.min_level}的標的，清單相對乾淨）")
     else:
-        print(view[cols].to_string(index=False))
+        print(report_html.rename_cn(view[cols]).to_string(index=False))
 
     OUTPUT_DIR.mkdir(parents=True, exist_ok=True)
     today = date.today().isoformat()
@@ -107,7 +108,8 @@ def main():
         f.write(f"# 地雷偵測 — {source}（{today}）\n\n")
         f.write("> ⚠️ 研究用途，非投資建議。地雷偵測用於『排除』，非放空訊號。\n")
         f.write("> 紅旗分財務(營收/EPS/毛利)、籌碼(法人賣/大戶出貨/融資)、技術(破季線/相對弱勢)三面。\n\n")
-        f.write(df[cols].to_markdown(index=False) + "\n")
+        f.write(report_html.rename_cn(df[cols]).to_markdown(index=False) + "\n")
+        f.write(f"\n> {report_html.GLOSSARY}\n")
     print(f"\n✅ 報告 → {path}")
 
     severe = df[df["風險級"].isin(["🔴 嚴重", "🟠 高"])]

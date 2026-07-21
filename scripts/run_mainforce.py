@@ -20,6 +20,7 @@ sys.path.insert(0, str(ROOT))
 from src.config import OUTPUT_DIR, MAINFORCE as M
 from src.screeners import main_force as mf
 from src import broker_client as bc
+from src import report_html
 from src.db import connect
 
 
@@ -59,7 +60,7 @@ def main():
                         "主力買超張", "主力賣超張", "主力淨額張", "主力分"]
             if c in df.columns]
     print(f"\n=== 主力籌碼綜合（{title}）===")
-    print(df[cols].to_string(index=False))
+    print(report_html.rename_cn(df[cols]).to_string(index=False))
     if not has_branch:
         print("\n💡 想看真實『券商分點主力進出』→ 辦 FinMind Sponsor、把 token 填進 .env 即自動啟用。")
     print("解讀：主力分高=法人買+大戶增持+散戶退場（籌碼集中）；仍需搭配環境紅綠燈與技術面。")
@@ -71,7 +72,7 @@ def main():
         f.write(f"# 主力籌碼綜合 — {title}（{today}）\n\n")
         f.write("> ⚠️ 研究用途，非投資建議。分數=法人佔量%+千張大戶週增+散戶退場(融資減)。\n")
         f.write(f"> 分點資料：{'FinMind Sponsor 已啟用' if has_branch else '免費模式（辦會員可加值）'}\n\n")
-        f.write(df[cols].to_markdown(index=False) + "\n")
+        f.write(report_html.rename_cn(df[cols]).to_markdown(index=False) + "\n")
     print(f"\n✅ 報告 → {path}")
 
 

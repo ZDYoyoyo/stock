@@ -15,6 +15,7 @@ sys.path.insert(0, str(ROOT))
 
 from src.config import OUTPUT_DIR, T12
 from src.screeners import revenue_momentum as t12
+from src import report_html
 
 
 def main():
@@ -29,7 +30,7 @@ def main():
             "YoY%", "累計YoY%", "MoM%", "加速度", "站上20MA", "score"]
     view = df[cols].head(T12.TOP_N)
     print(f"\n=== T12 月營收動能股（營收月 {ym}，前 {len(view)}）===")
-    print(view.to_string(index=False))
+    print(report_html.rename_cn(view).to_string(index=False))
     print("\n看點：加速度>0=近月成長率高於年初至今均(動能加速)；站上20MA=市場也認同。")
     print("⚠️ 營收僅財務面一角，仍需搭配籌碼/技術；已排除營建(認列失真)與 YoY 爆表(基期效應)雜訊。")
 
@@ -39,7 +40,8 @@ def main():
     with open(path, "w", encoding="utf-8") as f:
         f.write(f"# T12 月營收動能股 — 營收月 {ym}（{today}）\n\n")
         f.write("> ⚠️ 研究用途，非投資建議。加速度=單月YoY−累計YoY（>0=動能加速）。\n\n")
-        f.write(view.to_markdown(index=False) + "\n")
+        f.write(report_html.rename_cn(view).to_markdown(index=False) + "\n")
+        f.write(f"\n> {report_html.GLOSSARY}\n")
     print(f"\n✅ 報告 → {path}")
 
 

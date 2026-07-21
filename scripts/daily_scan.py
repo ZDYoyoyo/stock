@@ -25,6 +25,7 @@ sys.path.insert(0, str(ROOT))
 from src.config import OUTPUT_DIR
 from src.screeners import institutional_accumulation as t11
 from src.screeners import relative_strength as t16
+from src import report_html
 from src import regime as regime_mod
 from src import global_market as gm
 
@@ -40,7 +41,7 @@ def _section(f, title, df, cols):
     if df.empty:
         f.write("（今日無符合條件標的）\n")
     else:
-        f.write(df[cols].head(15).to_markdown(index=False))
+        f.write(report_html.rename_cn(df[cols].head(15)).to_markdown(index=False))
         f.write("\n")
 
 
