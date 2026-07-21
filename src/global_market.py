@@ -22,16 +22,21 @@ _HEADERS = {"User-Agent": "Mozilla/5.0"}
 def _one(sym: str):
     try:
         r = requests.get(_URL.format(sym.replace("^", "%5E")),
-                         params={"interval": "1d", "range": "5d"},
+                         params={"interval": "1d", "range": "10d"},
                          headers=_HEADERS, timeout=20)
         if r.status_code != 200:
             return None
-        m = r.json()["chart"]["result"][0]["meta"]
-        price, prev = m.get("regularMarketPrice"), m.get("chartPreviousClose")
-        if price and prev:
+        res = r.json()["chart"]["result"][0]
+        # 用日線收盤序列的最後兩根算「單日」漲跌。
+        # 注意：不可用 meta.chartPreviousClose——它是「抓取區間之前」的收盤，
+        # 會把多日累積漲跌誤當成單日（曾導致費半 5 日跌幅被顯示成單日 -9.97%）。
+        # 盤中時最後一根 close 即為即時價；收盤後為當日收盤 → 皆是「最新 vs 前一交易日收盤」
+        closes = [c for c in res["indicators"]["quote"][0]["close"] if c is not None]
+        if len(closes) >= 2 and closes[-2]:
+            price, prev = closes[-1], closes[-2]
             return {"price": round(price, 2), "prev": round(prev, 2),
                     "chg_%": round((price - prev) / prev * 100, 2)}
-    except (requests.RequestException, KeyError, ValueError, TypeError):
+    except (requests.RequestException, KeyError, ValueError, TypeError, IndexError):
         return None
     return None
 
