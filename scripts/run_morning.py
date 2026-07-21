@@ -10,12 +10,23 @@
 """
 import argparse
 import sys
+from datetime import datetime, timedelta, timezone
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(ROOT))
 
 from src import regime as regime_mod, global_market as gm
+
+
+def _us_status() -> str:
+    """依台灣時間判斷美股狀態，讓費半措辭正確（美股夏令 21:30~04:00 台灣時間）。"""
+    h = (datetime.now(timezone.utc) + timedelta(hours=8)).hour  # 台灣時間
+    if 21 <= h or h < 4:
+        return "美股正在盤中（費半為即時、尚未收盤，開盤前會再變）"
+    if 4 <= h < 9:
+        return "費半為昨夜美股完整收盤，直接影響今天台股開盤方向（此時最適合看）"
+    return "費半為昨夜美股收盤；此報告最佳在開盤前(約08~09點)跑，現在台股多已開盤"
 
 
 def main():
@@ -48,7 +59,7 @@ def main():
     except Exception:
         pass
 
-    print("\n重點：費半是昨夜美股完整收盤，影響今天台股開盤方向；環境紅燈時開盤別急著追。")
+    print(f"\n重點：{_us_status()}；環境紅燈時開盤別急著追。")
 
     if args.notify:
         from src.notify import notify
