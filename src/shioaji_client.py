@@ -48,7 +48,7 @@ def _get_api():
         return None
     try:
         api = sj.Shioaji()  # 正式環境（行情）
-        api.login(api_key=_API_KEY, secret_key=_SECRET_KEY, fetch_contract=True)
+        api.login(api_key=_API_KEY, secret_key=_SECRET_KEY)
         _api = api
         return _api
     except Exception:
@@ -59,6 +59,29 @@ def _get_api():
 def available() -> bool:
     """Shioaji 行情是否可用（有裝套件＋金鑰＋登入成功）。"""
     return _get_api() is not None
+
+
+def diagnose() -> str:
+    """回傳人看得懂的狀態字串，用於排錯（區分：沒金鑰／沒套件／登入失敗）。"""
+    if not _API_KEY or not _SECRET_KEY:
+        miss = [n for n, v in [("SHIOAJI_API_KEY", _API_KEY),
+                               ("SHIOAJI_SECRET_KEY", _SECRET_KEY)] if not v]
+        return ("❌ 金鑰未讀到：" + "、".join(miss) +
+                "\n   檢查：①.env 是否在執行目錄 ②存成 UTF-8（非 ANSI）③等號後無空格/引號"
+                " ④或用系統環境變數則需重開終端機")
+    try:
+        import shioaji as sj  # noqa: F401
+    except ImportError:
+        return "❌ 已讀到金鑰，但沒裝 shioaji 套件 → 用同一個 Python 跑：python -m pip install shioaji"
+    try:
+        api = sj.Shioaji()
+        api.login(api_key=_API_KEY, secret_key=_SECRET_KEY)
+        global _api
+        _api = api
+        return "✅ 金鑰＋套件＋登入都成功"
+    except Exception as e:
+        return (f"❌ 金鑰與套件都在，但登入失敗：{type(e).__name__}: {e}"
+                "\n   多半是：API 尚未審核通過 / 金鑰打錯 / 帳戶未開通行情")
 
 
 def _contract(api, sid: str):
@@ -125,11 +148,10 @@ def _logout():
 
 if __name__ == "__main__":
     # 取得金鑰後跑這個核對：python -m src.shioaji_client
-    if not available():
-        print("Shioaji 不可用：請確認已 pip install shioaji 且環境變數"
-              " SHIOAJI_API_KEY / SHIOAJI_SECRET_KEY 已設定。")
-    else:
-        print("✅ Shioaji 行情已連線，測試 2330/2317/6243：")
+    status = diagnose()
+    print(status)
+    if status.startswith("✅"):
+        print("測試 2330/2317/6243：")
         for q in quote(["2330", "2317", "6243"]):
             print(f"  {q['stock_id']} {q['name']}　現價 {q['price']}　"
                   f"漲跌 {q['chg_%']}%　量 {q['volume']}　買/賣 {q['bid']}/{q['ask']}")
