@@ -24,6 +24,9 @@ from __future__ import annotations
 import atexit
 import os
 
+from dotenv import load_dotenv
+
+load_dotenv()  # 讀取專案根目錄的 .env（否則獨立執行本模組時抓不到金鑰）
 _API_KEY = os.getenv("SHIOAJI_API_KEY", "")
 _SECRET_KEY = os.getenv("SHIOAJI_SECRET_KEY", "")
 
