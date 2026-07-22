@@ -34,8 +34,10 @@ def _branch() -> str:
 
 
 def pull():
+    br = _branch()
     print("⬇️ 拉取遠端最新持股…")
-    _git("pull", "--rebase", "--autostash", "origin", _branch())
+    _git("fetch", "origin", br)
+    _git("merge", "-X", "ours", "--no-edit", f"origin/{br}")
     print("✅ 已更新到最新持股")
 
 
@@ -55,9 +57,14 @@ def sync():
         print("✅ 已提交本機持股改動")
     else:
         print("（本機持股無改動）")
-    # 2) 拉遠端（避免與他台/雲端衝突）
+    # 2) 併入遠端：用 merge -X ours（持股是單人檔，衝突一律保留本機這份，
+    #    避免 rebase 遇 add/add 卡住。先 fetch 再 merge 遠端追蹤分支。）
     print("⬇️ 同步遠端…")
-    _git("pull", "--rebase", "--autostash", "origin", br)
+    _git("fetch", "origin", br)
+    m = _git("merge", "-X", "ours", "--no-edit", f"origin/{br}")
+    if m.returncode != 0:
+        print("⚠️ 合併遠端未完成，請看上方訊息（可先 git merge --abort 再重試）")
+        return
     # 3) 推送
     print("⬆️ 推送…")
     r = _git("push", "origin", br)
