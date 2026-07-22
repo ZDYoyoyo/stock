@@ -49,6 +49,10 @@ def _get_api():
     try:
         api = sj.Shioaji()  # 正式環境（行情）
         api.login(api_key=_API_KEY, secret_key=_SECRET_KEY)
+        try:
+            api.fetch_contracts(contract_download=True)  # 確保合約下載完再查報價
+        except Exception:
+            pass  # 新舊版行為不一，失敗就靠登入時的自動下載
         _api = api
         return _api
     except Exception:
