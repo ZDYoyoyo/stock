@@ -50,6 +50,14 @@ def main():
     a.add_argument("--date", default="", help="買入日 YYYY-MM-DD")
     a.add_argument("--note", default="", help="備註")
 
+    u = sub.add_parser("update", help="只改指定欄位（不覆蓋成本等其他欄）")
+    u.add_argument("stock_id")
+    u.add_argument("--lots", type=float, default=None, help="改張數")
+    u.add_argument("--price", type=float, default=None, help="改成本均價")
+    u.add_argument("--stop", type=float, default=None, help="改停損價")
+    u.add_argument("--target", type=float, default=None, help="改停利價")
+    u.add_argument("--note", default=None, help="改備註")
+
     r = sub.add_parser("remove", help="移除持股")
     r.add_argument("stock_id")
 
@@ -59,6 +67,16 @@ def main():
         pf.add(args.stock_id, args.lots, args.price, args.stop, args.target, args.date, args.note)
         print(f"已記錄 {args.stock_id}：{args.lots} 張 @ {args.price}"
               + (f"，停損 {args.stop}" if args.stop else ""))
+        _show()
+    elif args.cmd == "update":
+        _, ok = pf.update(args.stock_id, args.lots, args.price, args.stop, args.target, args.note)
+        if not ok:
+            print(f"查無持股 {args.stock_id}，請先用 add 新增。")
+            return
+        changed = [n for n, v in [("張數", args.lots), ("成本", args.price),
+                                  ("停損", args.stop), ("停利", args.target), ("備註", args.note)]
+                   if v is not None]
+        print(f"已更新 {args.stock_id} 的 {('、'.join(changed)) or '（未指定欄位）'}（其餘保留）")
         _show()
     elif args.cmd == "remove":
         pf.remove(args.stock_id)

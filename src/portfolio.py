@@ -34,6 +34,24 @@ def add(stock_id, lots, cost, stop=None, target=None, buy_date="", note=""):
     return df
 
 
+def update(stock_id, lots=None, cost=None, stop=None, target=None, note=None):
+    """只改指定欄位，其餘保留（不像 add 會整列覆蓋）。改停損停利/加減張數用這個。
+
+    回傳 (df, changed)；changed=False 表示查無此持股。
+    """
+    df = load()
+    sid = str(stock_id)
+    mask = df["stock_id"] == sid
+    if not mask.any():
+        return df, False
+    fields = {"lots": lots, "cost": cost, "stop": stop, "target": target, "note": note}
+    for col, val in fields.items():
+        if val is not None:
+            df.loc[mask, col] = val
+    save(df)
+    return df, True
+
+
 def remove(stock_id):
     df = load()
     df = df[df["stock_id"] != str(stock_id)]

@@ -122,8 +122,10 @@ class Console:
                  font=("Microsoft JhengHei", 7), fg="#888",
                  wraplength=200, justify="left").pack(anchor="w", pady=(2, 3))
         self._btn(p, "❓ 填寫說明", self.show_help, "#f0f0f0")
-        self._btn(p, "➕ 記錄持股(已買)", self.add_holding)
+        self._btn(p, "➕ 記錄持股(已買/覆蓋)", self.add_holding)
+        self._btn(p, "✏️ 修改(只改填的欄)", self.update_holding, "#eefaf0")
         self._btn(p, "➖ 移除持股", self.remove_holding)
+        self._btn(p, "☁️ 同步持股(跨設備)", self.sync_portfolio, "#eef4ff")
         self._btn(p, "📋 查看持股損益", lambda: self.run(["scripts.portfolio"], "查看持股"))
         self._btn(p, "🧮 風控試算(算買幾張)", self.risk_calc)
         self._btn(p, "🧨 排雷(此代號)", self.landmine_one)
@@ -175,12 +177,33 @@ class Console:
             args += ["--target", self.e["target"].get().strip()]
         self.run(args, f"記錄持股 {sid}")
 
+    def update_holding(self):
+        sid = self.e["sid"].get().strip()
+        if not sid:
+            self.log("⚠️ 修改需填代號，再填想改的欄（張數/成本/停損/停利），沒填的欄保留不動。\n")
+            return
+        args = ["scripts.portfolio", "update", sid]
+        any_field = False
+        for key, flag in [("lots", "--lots"), ("price", "--price"),
+                          ("stop", "--stop"), ("target", "--target")]:
+            val = self.e[key].get().strip()
+            if val:
+                args += [flag, val]
+                any_field = True
+        if not any_field:
+            self.log("⚠️ 修改需至少填一個要改的欄（張數/成本/停損/停利）。\n")
+            return
+        self.run(args, f"修改持股 {sid}")
+
     def remove_holding(self):
         sid = self.e["sid"].get().strip()
         if not sid:
             self.log("⚠️ 移除持股需填代號\n")
             return
         self.run(["scripts.portfolio", "remove", sid], f"移除 {sid}")
+
+    def sync_portfolio(self):
+        self.run(["scripts.sync_portfolio"], "同步持股(Git)")
 
     def risk_calc(self):
         sid = self.e["sid"].get().strip()

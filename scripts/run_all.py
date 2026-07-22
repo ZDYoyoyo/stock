@@ -115,6 +115,21 @@ def _section(f, title, df, cols, n=15, skipped=False, note=None):
         f.write(disp.to_markdown(index=False) + "\n")
 
 
+def _holdings_attribution(pf_view):
+    """對每檔持股做今vs昨籌碼漲跌歸因（一句話）。回傳 [(代號, 名稱, 說明)]。"""
+    from src.screeners import chip_diagnosis as cd
+    out = []
+    for r in pf_view.itertuples():
+        sid = str(r.代號)
+        try:
+            df = cd._fetch(sid, 5)
+            if not df.empty and len(df) >= 2:
+                out.append((sid, r.名稱, cd.one_line(df)))
+        except Exception:
+            continue
+    return out
+
+
 def _summary(today, reg, glob, df11, df16, inter, dflt, df12=None, pf_view=None,
              pf_summary=None, dfdt=None):
     """給推播用的精簡摘要（純文字，含 HTML 粗體）。"""
@@ -127,6 +142,8 @@ def _summary(today, reg, glob, df11, df16, inter, dflt, df12=None, pf_view=None,
         for r in alerts.itertuples():
             lines.append(f"🔔 <b>{r.代號} {r.名稱}：{r.狀態}</b>（現價 {r.現價}）")
         lines.append(f"📋 持股總損益 {pf_summary['總損益']:+,}（{pf_summary['總報酬%']:+.2f}%）")
+        for sid, name, line in _holdings_attribution(pf_view):
+            lines.append(f"　└ {sid} {name}：{line}")
         lines.append("")
     if inter:
         lines.append("⭐ <b>雙訊號交集(法人買且抗跌)</b>：" + "、".join(inter))
@@ -282,6 +299,11 @@ def main():
             f.write(f"\n## 📋 我的持股（總損益 {pf_summary['總損益']:+,}"
                     f"｜{pf_summary['總報酬%']:+.2f}%）\n\n")
             f.write(pf_view.to_markdown(index=False) + "\n")
+            attr = _holdings_attribution(pf_view)
+            if attr:
+                f.write("\n### 📊 持股今日籌碼歸因（今 vs 昨，自動）\n\n")
+                for sid, name, line in attr:
+                    f.write(f"- **{sid} {name}**：{line}\n")
         f.write(f"\n---\n\n> {report_html.GLOSSARY}\n")
 
     # 同步輸出 HTML（表格永遠對齊、紅漲綠跌上色）
