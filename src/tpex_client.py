@@ -101,8 +101,10 @@ def margin(date: str) -> list[dict]:
         sid = row[0].strip()
         if not _STOCK_RE.match(sid):
             continue
-        # 代號0 名稱1 前資餘額2 資買3 資賣4 現償5 資餘額6
-        out.append({"date": iso, "stock_id": sid, "margin_balance": int(_num(row[6]))})
+        # 代號0 名稱1 前資餘額2 資買3 資賣4 現償5 資餘額6 … 券餘額14
+        out.append({"date": iso, "stock_id": sid,
+                    "margin_balance": int(_num(row[6])),
+                    "short_balance": int(_num(row[14])) if len(row) > 14 else None})
     return out
 
 

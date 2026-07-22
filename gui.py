@@ -128,6 +128,14 @@ class Console:
         self._btn(p, "🧮 風控試算(算買幾張)", self.risk_calc)
         self._btn(p, "🧨 排雷(此代號)", self.landmine_one)
         self._btn(p, "🏦 查籌碼(此代號)", self.mainforce_one)
+        self._btn(p, "🔍 籌碼診斷(法人+融資券+漲跌原因)", self.diagnose_one, "#eef4ff")
+
+    def diagnose_one(self):
+        sid = self.e["sid"].get().strip()
+        if not sid:
+            self.log("⚠️ 籌碼診斷需填代號（外資/投信/自營+融資融券逐日+今日漲跌歸因）\n")
+            return
+        self.run(["scripts.diagnose", sid], f"籌碼診斷 {sid}")
 
     def show_help(self):
         self.log(

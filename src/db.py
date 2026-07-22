@@ -21,6 +21,7 @@ CREATE TABLE IF NOT EXISTS institutional (
 CREATE TABLE IF NOT EXISTS margin (
     date TEXT, stock_id TEXT,
     margin_balance INTEGER,   -- 融資今日餘額（張）
+    short_balance INTEGER,    -- 融券今日餘額（張）
     PRIMARY KEY (date, stock_id)
 );
 CREATE TABLE IF NOT EXISTS revenue (
@@ -51,9 +52,21 @@ def connect():
         conn.close()
 
 
+# 舊 DB 補欄遷移：{表: [(欄, 型別), …]}。CREATE TABLE IF NOT EXISTS 不會替既有表加欄，
+# 故對舊 .db 以 ALTER TABLE 補上（欄已存在則略過）。
+_MIGRATIONS = {
+    "margin": [("short_balance", "INTEGER")],
+}
+
+
 def init_db():
     with connect() as conn:
         conn.executescript(_SCHEMA)
+        for table, adds in _MIGRATIONS.items():
+            existing = {r[1] for r in conn.execute(f"PRAGMA table_info({table})")}
+            for col, coltype in adds:
+                if col not in existing:
+                    conn.execute(f"ALTER TABLE {table} ADD COLUMN {col} {coltype}")
 
 
 def upsert(conn, table: str, rows: list[dict]):

@@ -138,15 +138,18 @@ def margin(date: str) -> list[dict]:
     iso = f"{date[:4]}-{date[4:6]}-{date[6:]}"
     for t in d.get("tables", []):
         fields = t.get("fields") or []
-        # 融資段：代號,名稱,買進,賣出,現金償還,前日餘額,今日餘額,...
+        # 融資融券段：…,融資今日餘額(idx6),…,融券今日餘額(idx12),…（兩個「今日餘額」）
         if fields[:2] == ["代號", "名稱"] and "今日餘額" in fields:
-            i_bal = fields.index("今日餘額")  # 第一個「今日餘額」為融資
+            bal_idx = [i for i, x in enumerate(fields) if x == "今日餘額"]
+            i_margin = bal_idx[0]                      # 第一個＝融資
+            i_short = bal_idx[1] if len(bal_idx) > 1 else None  # 第二個＝融券
             out = []
             for row in t.get("data", []):
                 sid = row[0].strip()
                 if not _STOCK_RE.match(sid):
                     continue
                 out.append({"date": iso, "stock_id": sid,
-                            "margin_balance": int(_num(row[i_bal]))})
+                            "margin_balance": int(_num(row[i_margin])),
+                            "short_balance": int(_num(row[i_short])) if i_short is not None else None})
             return out
     return []
