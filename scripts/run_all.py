@@ -131,7 +131,7 @@ def _holdings_attribution(pf_view):
 
 
 def _summary(today, reg, glob, df11, df16, inter, dflt, df12=None, pf_view=None,
-             pf_summary=None, dfdt=None):
+             pf_summary=None, dfdt=None, ft=None, ftstats=None):
     """給推播用的精簡摘要（純文字，含 HTML 粗體）。"""
     lines = [f"<b>📈 台股每日報告 {today}</b>",
              f"🚦 {regime_mod.summary_line(reg)}",
@@ -181,6 +181,14 @@ def _summary(today, reg, glob, df11, df16, inter, dflt, df12=None, pf_view=None,
             top = dfdt.head(3)
             names = "、".join(f"{r.stock_id} {r.name}{r.多空傾向}" for r in top.itertuples())
             lines.append(f"⚡ 當沖前3：{names}")
+    # 昨日精選今日追蹤：各軌隔日平均表現 + 最強一檔
+    if ft and ft.get("tracks"):
+        lines.append(f"\n📈 <b>昨日精選今日追蹤（{ft['date']}選）</b>")
+        for track, rows in ft["tracks"].items():
+            st = (ftstats or {}).get(track, {})
+            best = max(rows, key=lambda r: (r["chg"] if r["chg"] == r["chg"] else -999))
+            head = f"　{track}：隔日均 {st.get('avg', 0):+.2f}%（漲{st.get('up', 0)}/{st.get('n', 0)}）" if st else f"　{track}："
+            lines.append(f"{head}｜最強 {best['stock_id']} {best['name']} {best['chg']:+.2f}%")
     lines.append("\n完整報告見 reports/screener/（.html 用瀏覽器開）")
     return "\n".join(x for x in lines if x is not None)
 
@@ -261,6 +269,14 @@ def main():
 
     OUTPUT_DIR.mkdir(parents=True, exist_ok=True)
     today = date.today().isoformat()
+
+    # 昨日精選今日追蹤：先算昨日精選對今天的表現，再存今天的精選（供明天追蹤）
+    import pandas as pd
+    from src import picks_tracker as pt
+    ft = pt.followthrough(today)
+    ftstats = pt.summary_stats(ft) if ft else {}
+    pt.save(today, {"波段T11": df11, "波段T16": df16, "當沖": dfdt}, n=15)
+
     path = OUTPUT_DIR / f"{today}_run_all.md"
     with open(path, "w", encoding="utf-8") as f:
         f.write(f"# 台股每日整合報告 — {today}\n\n")
@@ -304,6 +320,20 @@ def main():
                 f.write("\n### 📊 持股今日籌碼歸因（今 vs 昨，自動）\n\n")
                 for sid, name, line in attr:
                     f.write(f"- **{sid} {name}**：{line}\n")
+        # 昨日精選今日追蹤（波段T11/T16 + 當沖前15 → 今天表現+原因）
+        if ft.get("tracks"):
+            f.write(f"\n## 📈 昨日精選今日追蹤（{ft['date']} 精選 → 今日表現＋原因）\n\n")
+            for track, rows in ft["tracks"].items():
+                st = ftstats.get(track, {})
+                head = f"### {track}"
+                if st:
+                    head += f"（隔日均 {st['avg']:+.2f}%，上漲 {st['up']}/{st['n']}）"
+                f.write(head + "\n\n")
+                for r in rows:
+                    c = r["chg"]
+                    cs = f"{c:+.2f}%" if pd.notna(c) else "—"
+                    f.write(f"- #{r['rank']} **{r['stock_id']} {r['name']}** 今日 {cs} → {r['one_line']}\n")
+                f.write("\n")
         f.write(f"\n---\n\n> {report_html.GLOSSARY}\n")
 
     # 同步輸出 HTML（表格永遠對齊、紅漲綠跌上色）
@@ -350,7 +380,7 @@ def main():
 
     if args.notify:
         from src.notify import notify
-        ok, ch, detail = notify(_summary(today, reg, glob, df11, df16, inter, dflt, df12, pf_view, pf_summary, dfdt),
+        ok, ch, detail = notify(_summary(today, reg, glob, df11, df16, inter, dflt, df12, pf_view, pf_summary, dfdt, ft, ftstats),
                                 subject=f"台股每日報告 {today}", file_path=str(html_path))
         print(f"   📲 推播（{ch}）：{'成功' if ok else '失敗 - ' + detail}")
 
