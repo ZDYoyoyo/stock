@@ -267,6 +267,8 @@ def main():
     df11 = flows_mod.enrich(df11, flows=_flows)
     df16 = flows_mod.enrich(df16, flows=_flows)
     dfdt = flows_mod.enrich(dfdt, flows=_flows)
+    df12 = flows_mod.enrich(df12, flows=_flows)   # 五軌一致：成長軌也看法人/資券
+    dflt = flows_mod.enrich(dflt, flows=_flows)   # 長期軌也看法人/資券
 
     # 併入產業別（對齊 T12/長期軌；FinMind 一次 call 全市場，抓不到則欄位留白，不影響其他欄）
     from src import enrich as enrich_mod
@@ -327,11 +329,14 @@ def main():
             f.write("".join(f"- {s} {nm.get(s,'')}\n" for s in both) if both else "（無）\n")
 
         _section(f, "🚀 成長｜T12 月營收動能（YoY強+近月加速）", df12,
-                 ["stock_id", "name", "market", "產業", "今日收盤", "今日漲跌%", "YoY%",
-                  "累計YoY%", "MoM%", "加速度", "站上20MA", "score"], n=20)
+                 ["stock_id", "name", "market", "產業", "今日收盤", "今日漲跌%",
+                  "外資", "投信", "自營", "融資增減", "融券增減", "YoY%",
+                  "累計YoY%", "MoM%", "加速度", "站上20MA", "score"], n=20, note=_flownote.strip())
         _section(f, "🟢 長期｜價值+成長+配息", dflt,
-                 ["stock_id", "name", "產業", "今日收盤", "今日漲跌%", "殖利率%", "PER",
-                  "ROE估%", "營收YoY%", "連配息年", "score"], skipped=args.skip_longterm)
+                 ["stock_id", "name", "產業", "今日收盤", "今日漲跌%",
+                  "外資", "投信", "自營", "融資增減", "融券增減", "殖利率%", "PER",
+                  "ROE估%", "營收YoY%", "連配息年", "score"], skipped=args.skip_longterm,
+                 note=_flownote.strip())
         _section(f, "🔴 當沖候選｜高波動+高流動（盤中盯，非即時訊號）", dfdt,
                  ["stock_id", "name", "market", "產業", "今日收盤", "今日漲跌%", "多空傾向", "與大盤",
                   "外資", "投信", "自營", "融資增減", "融券增減", "當日振幅%", "均振幅%", "量能倍數"],
@@ -378,13 +383,17 @@ def main():
                   "return_%", "vs_market_%", "風險", "紅旗"],
          "signed": ["今日漲跌%", "return_%", "vs_market_%", "外資", "投信", "自營", "融資增減", "融券增減"],
          "landmine": True, "landmine_label": "T16 強勢榜"},
-        {"title": "🚀 成長｜T12 月營收動能（YoY強+近月加速）", "df": df12, "n": 20,
-         "cols": ["stock_id", "name", "market", "產業", "今日收盤", "今日漲跌%", "YoY%",
+        {"title": "🚀 成長｜T12 月營收動能（YoY強+近月加速）", "df": df12, "n": 20, "note": _flownote.strip(),
+         "cols": ["stock_id", "name", "market", "產業", "今日收盤", "今日漲跌%",
+                  "外資", "投信", "自營", "融資增減", "融券增減", "YoY%",
                   "累計YoY%", "MoM%", "加速度", "站上20MA", "score"],
-         "signed": ["今日漲跌%", "YoY%", "累計YoY%", "MoM%", "加速度"]},
-        {"title": "🟢 長期｜價值+成長+配息", "df": dflt, "skipped": args.skip_longterm,
-         "cols": ["stock_id", "name", "產業", "今日收盤", "今日漲跌%", "殖利率%", "PER", "ROE估%",
-                  "營收YoY%", "連配息年", "score"], "signed": ["今日漲跌%", "營收YoY%"]},
+         "signed": ["今日漲跌%", "外資", "投信", "自營", "融資增減", "融券增減",
+                    "YoY%", "累計YoY%", "MoM%", "加速度"]},
+        {"title": "🟢 長期｜價值+成長+配息", "df": dflt, "skipped": args.skip_longterm, "note": _flownote.strip(),
+         "cols": ["stock_id", "name", "產業", "今日收盤", "今日漲跌%",
+                  "外資", "投信", "自營", "融資增減", "融券增減", "殖利率%", "PER", "ROE估%",
+                  "營收YoY%", "連配息年", "score"],
+         "signed": ["今日漲跌%", "外資", "投信", "自營", "融資增減", "融券增減", "營收YoY%"]},
         {"title": "🔴 當沖候選｜高波動+高流動（盤中盯，非即時訊號）", "df": dfdt, "note": notedt, "n": 20,
          "cols": ["stock_id", "name", "market", "產業", "今日收盤", "今日漲跌%", "多空傾向", "與大盤",
                   "外資", "投信", "自營", "融資增減", "融券增減", "當日振幅%", "均振幅%", "量能倍數"],

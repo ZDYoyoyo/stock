@@ -34,12 +34,25 @@ _api = None            # 已登入的 Shioaji 實例（模組級單例，避免�
 _login_failed = False  # 登入/匯入失敗過就不再重試，避免每次呼叫都卡住
 
 
+def _cloud_blocked() -> bool:
+    """雲端/排程沙箱會擋 Shioaji 的 Solace 協定，登入必失敗且每次浪費約 10 秒重試+噴錯誤 log。
+    偵測到雲端就直接跳過，改用 TWSE MIS。本機（無 CLAUDE_CODE_REMOTE）不受影響。
+    可用環境變數 SHIOAJI_SKIP 覆蓋：=1 強制跳過、=0 強制嘗試（即使在雲端）。"""
+    override = os.getenv("SHIOAJI_SKIP")
+    if override is not None:
+        return override.strip().lower() not in ("", "0", "false", "no", "off")
+    return bool(os.getenv("CLAUDE_CODE_REMOTE") or os.getenv("IS_SANDBOX"))
+
+
 def _get_api():
-    """取得已登入的 Shioaji 實例；沒裝套件／沒金鑰／登入失敗回 None。"""
+    """取得已登入的 Shioaji 實例；沒裝套件／沒金鑰／登入失敗／雲端跳過回 None。"""
     global _api, _login_failed
     if _api is not None:
         return _api
     if _login_failed or not (_API_KEY and _SECRET_KEY):
+        return None
+    if _cloud_blocked():           # 雲端/排程環境 → 不嘗試，直接退回 MIS
+        _login_failed = True
         return None
     try:
         import shioaji as sj
@@ -66,7 +79,10 @@ def available() -> bool:
 
 
 def diagnose() -> str:
-    """回傳人看得懂的狀態字串，用於排錯（區分：沒金鑰／沒套件／登入失敗）。"""
+    """回傳人看得懂的狀態字串，用於排錯（區分：雲端跳過／沒金鑰／沒套件／登入失敗）。"""
+    if _cloud_blocked():
+        return ("⏭️ 偵測到雲端/排程環境，已跳過 Shioaji（Solace 協定被沙箱擋，登入必失敗）"
+                "→ 自動改用 TWSE MIS。本機不受影響；要強制嘗試可設 SHIOAJI_SKIP=0")
     if not _API_KEY or not _SECRET_KEY:
         miss = [n for n, v in [("SHIOAJI_API_KEY", _API_KEY),
                                ("SHIOAJI_SECRET_KEY", _SECRET_KEY)] if not v]
