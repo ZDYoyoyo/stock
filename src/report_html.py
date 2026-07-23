@@ -79,7 +79,12 @@ h1 { font-size: 22px; margin: 0 0 4px; }
 .reg-neutral { background: #eef2f7; border-color: #6b7a90; }
 .reg-bull { background: #e8f7ee; border-color: #158a4e; }
 h2 { font-size: 16px; margin: 22px 0 4px; padding-bottom: 6px; border-bottom: 2px solid #e2e5ea; }
+h3 { font-size: 14px; margin: 14px 0 4px; }
 .note { color:#777; font-size:12px; margin: 0 0 8px; }
+.warn { background:#fff4f4; border-left:4px solid #d63031; border-radius:6px;
+  padding:8px 14px; margin:8px 0; font-size:13px; }
+.warn ul { margin:6px 0 0; padding-left:20px; }
+ul.ft { margin:4px 0 12px; padding-left:20px; font-size:13px; line-height:1.7; }
 .tblwrap { overflow-x: auto; }
 table { border-collapse: collapse; width: 100%; font-size: 13px; background: #fff;
   border-radius: 8px; overflow: hidden; box-shadow: 0 1px 3px rgba(0,0,0,.06); }
@@ -94,6 +99,7 @@ tbody tr:hover { background: #eef3fb; }
   body { background:#15171b; color:#e6e6e6; } table{ background:#1e2126; }
   tbody tr:nth-child(even){ background:#23272e; } th{ background:#333a44; }
   .sub{color:#aaa;} h2{border-color:#333;}
+  .warn{ background:#2a1d1d; }
 }
 """
 
@@ -125,6 +131,52 @@ def _table(df: pd.DataFrame, cols, signed_cols) -> str:
     return f'<div class="tblwrap"><table><thead><tr>{head}</tr></thead><tbody>{body}</tbody></table></div>'
 
 
+def _landmine_html(df, label="T11 候選") -> str:
+    """清單若有高風險(🔴/🟠)，輸出紅旗排雷提醒 callout（對齊 .md 的 _landmine_warn）。"""
+    if df is None or df.empty or "風險" not in df.columns:
+        return ""
+    hi = df[df["風險"].astype(str).str.contains("嚴重|高", na=False)]
+    if hi.empty:
+        return ""
+    items = ""
+    for r in hi.itertuples():
+        flags = getattr(r, "紅旗", "") or ""
+        items += f"<li>{r.stock_id} {r.name}：{r.風險}　{flags}</li>"
+    return (f'<div class="warn">🧨 <b>{label}排雷提醒</b>'
+            f'（財務/籌碼/技術紅旗，建議先避開或查清）：<ul>{items}</ul></div>')
+
+
+def _attr_html(attr) -> str:
+    """持股今日籌碼歸因（今 vs 昨）— 對齊 .md 的『持股今日籌碼歸因』段。"""
+    if not attr:
+        return ""
+    lis = "".join(f"<li><b>{sid} {name}</b>：{line}</li>" for sid, name, line in attr)
+    return ('<h3>📊 持股今日籌碼歸因（今 vs 昨，自動）</h3>'
+            f'<ul class="ft">{lis}</ul>')
+
+
+def _followthrough_html(ft, ftstats) -> str:
+    """昨日精選今日追蹤 — 對齊 .md 的同名段（各軌隔日表現＋逐檔原因）。"""
+    if not ft or not ft.get("tracks"):
+        return ""
+    h = (f'<h2>📈 昨日精選今日追蹤（{ft["date"]} 精選 → 今日表現＋原因）</h2>')
+    for track, rows in ft["tracks"].items():
+        st = (ftstats or {}).get(track, {})
+        sub = track + (f"（隔日均 {st['avg']:+.2f}%，上漲 {st['up']}/{st['n']}）" if st else "")
+        h += f"<h3>{sub}</h3><ul class='ft'>"
+        for r in rows:
+            c = r["chg"]
+            if pd.notna(c):
+                color = _UP if c > 0 else (_DOWN if c < 0 else "#666")
+                cs = f'<span style="color:{color};font-weight:600">{c:+.2f}%</span>'
+            else:
+                cs = "—"
+            h += (f"<li>#{r['rank']} <b>{r['stock_id']} {r['name']}</b> "
+                  f"今日 {cs} → {r['one_line']}</li>")
+        h += "</ul>"
+    return h
+
+
 def _regime_class(reg: dict) -> str:
     label = reg.get("regime", "")
     if "偏空" in label:
@@ -136,7 +188,8 @@ def _regime_class(reg: dict) -> str:
     return "reg-neutral"
 
 
-def build(today, reg, glob_lines, sox, blocks, intersection=None) -> str:
+def build(today, reg, glob_lines, sox, blocks, intersection=None,
+          followthrough=None, ftstats=None) -> str:
     from .regime import summary_line
     banner = (f'<div class="banner {_regime_class(reg)}">🚦 {summary_line(reg)}'
               f'<small>{sox}<br>🌍 {" ｜ ".join(glob_lines)}</small></div>')
@@ -157,9 +210,18 @@ def build(today, reg, glob_lines, sox, blocks, intersection=None) -> str:
             body += _table(shown, b["cols"], b.get("signed", []))
             if n and len(df) > n:
                 body += f'<p class="note">（僅顯示前 {n} 名，共 {len(df)} 檔符合；完整清單見 CSV/終端機）</p>'
+        # 排雷提醒 callout（對齊 .md）：df 內有高風險則列紅旗
+        if b.get("landmine"):
+            body += _landmine_html(df, b.get("landmine_label", "T11 候選"))
+        # 持股籌碼歸因（對齊 .md）：接在持股表後
+        if b.get("attribution"):
+            body += _attr_html(b["attribution"])
         if b.get("after_intersection") and intersection is not None:
             names = "、".join(intersection) if intersection else "（無）"
             body += f'<div class="star">⭐ 雙訊號交集（法人買且抗跌）：{names}</div>'
+
+    # 昨日精選今日追蹤（對齊 .md）：擺在各軌之後、術語小抄之前
+    body += _followthrough_html(followthrough, ftstats)
 
     return f"""<!doctype html><html lang="zh-Hant"><head><meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">

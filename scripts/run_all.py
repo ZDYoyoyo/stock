@@ -285,6 +285,8 @@ def main():
     ft = pt.followthrough(today)
     ftstats = pt.summary_stats(ft) if ft else {}
     pt.save(today, {"波段T11": df11, "波段T16": df16, "當沖": dfdt}, n=15)
+    # 持股籌碼歸因算一次，.md 與 .html 共用（確保兩份內容一致）
+    pf_attr = _holdings_attribution(pf_view) if not pf_view.empty else []
 
     path = OUTPUT_DIR / f"{today}_run_all.md"
     with open(path, "w", encoding="utf-8") as f:
@@ -298,13 +300,13 @@ def main():
         _section(f, "🟡 波段｜T11 法人吸貨（上市投信/上櫃外資）", df11,
                  ["stock_id", "name", "market", "investor", "close", "今日收盤", "今日漲跌%",
                   "外資", "投信", "自營", "融券增減",
-                  "price_gain_%", "consec_buy_days", "buy_ratio_%", "千張大戶%", "風險", "score"],
+                  "price_gain_%", "consec_buy_days", "buy_ratio_%", "千張大戶%", "風險", "紅旗", "score"],
                  note=note11)
         _landmine_warn(f, df11)
         _section(f, "🟡 波段｜T16 抗跌強勢", df16,
                  ["stock_id", "name", "market", "今日收盤", "今日漲跌%",
                   "外資", "投信", "自營", "融券增減",
-                  "return_%", "vs_market_%", "風險"], note=note16)
+                  "return_%", "vs_market_%", "風險", "紅旗"], note=note16)
         _landmine_warn(f, df16, "T16 強勢榜")
         if not df11.empty and not df16.empty:
             both = set(df11["stock_id"]) & set(df16["stock_id"])
@@ -314,7 +316,7 @@ def main():
 
         _section(f, "🚀 成長｜T12 月營收動能（YoY強+近月加速）", df12,
                  ["stock_id", "name", "market", "產業", "今日收盤", "今日漲跌%", "YoY%",
-                  "累計YoY%", "加速度", "站上20MA", "score"], n=20)
+                  "累計YoY%", "MoM%", "加速度", "站上20MA", "score"], n=20)
         _section(f, "🟢 長期｜價值+成長+配息", dflt,
                  ["stock_id", "name", "產業", "今日收盤", "今日漲跌%", "殖利率%", "PER",
                   "ROE估%", "營收YoY%", "連配息年", "score"], skipped=args.skip_longterm)
@@ -326,7 +328,7 @@ def main():
             f.write(f"\n## 📋 我的持股（總損益 {pf_summary['總損益']:+,}"
                     f"｜{pf_summary['總報酬%']:+.2f}%）\n\n")
             f.write(pf_view.to_markdown(index=False) + "\n")
-            attr = _holdings_attribution(pf_view)
+            attr = pf_attr
             if attr:
                 f.write("\n### 📊 持股今日籌碼歸因（今 vs 昨，自動）\n\n")
                 for sid, name, line in attr:
@@ -356,12 +358,14 @@ def main():
                   "外資", "投信", "自營", "融券增減",
                   "price_gain_%", "consec_buy_days", "buy_ratio_%", "千張大戶%", "風險", "紅旗", "score"],
          "signed": ["今日漲跌%", "price_gain_%", "外資", "投信", "自營", "融券增減"],
+         "landmine": True, "landmine_label": "T11 候選",
          "after_intersection": True},
         {"title": "🟡 波段｜T16 抗跌強勢", "df": df16, "note": note16, "n": 15,
          "cols": ["stock_id", "name", "market", "今日收盤", "今日漲跌%",
                   "外資", "投信", "自營", "融券增減",
                   "return_%", "vs_market_%", "風險", "紅旗"],
-         "signed": ["今日漲跌%", "return_%", "vs_market_%", "外資", "投信", "自營", "融券增減"]},
+         "signed": ["今日漲跌%", "return_%", "vs_market_%", "外資", "投信", "自營", "融券增減"],
+         "landmine": True, "landmine_label": "T16 強勢榜"},
         {"title": "🚀 成長｜T12 月營收動能（YoY強+近月加速）", "df": df12, "n": 20,
          "cols": ["stock_id", "name", "market", "產業", "今日收盤", "今日漲跌%", "YoY%",
                   "累計YoY%", "MoM%", "加速度", "站上20MA", "score"],
@@ -379,10 +383,11 @@ def main():
             "title": f"📋 我的持股（總損益 {pf_summary['總損益']:+,}｜{pf_summary['總報酬%']:+.2f}%）",
             "df": pf_view,
             "cols": ["代號", "名稱", "張數", "成本", "現價", "損益%", "損益金額", "停損", "狀態"],
-            "signed": ["損益%", "損益金額"]})
+            "signed": ["損益%", "損益金額"],
+            "attribution": pf_attr})
     inter = [f"{s} {nm.get(s,'')}" for s in both]
     html = report_html.build(today, reg, gm.summary_lines(glob), gm.sox_signal(glob),
-                             blocks, intersection=inter)
+                             blocks, intersection=inter, followthrough=ft, ftstats=ftstats)
     html_path = OUTPUT_DIR / f"{today}_run_all.html"
     html_path.write_text(html, encoding="utf-8")
 
