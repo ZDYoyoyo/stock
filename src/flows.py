@@ -11,31 +11,42 @@ import pandas as pd
 from .db import connect
 
 
+_FLOW_COLS = ("外資", "投信", "自營", "融資增減", "融券增減")
+
+
+def _window_delta(df: pd.DataFrame, col: str, name: str, days: int) -> pd.DataFrame:
+    """近days日『窗末餘額 − 窗初餘額』的淨變化（張），回傳 [stock_id, name]。"""
+    w = df.dropna(subset=[col])
+    if w.empty:
+        return pd.DataFrame(columns=["stock_id", name])
+    win = sorted(w["date"].unique())[-days:]
+    w = w[w["date"].isin(win)].sort_values("date")
+    first = w.groupby("stock_id")[col].first()
+    last = w.groupby("stock_id")[col].last()
+    return (last - first).rename(name).reset_index()
+
+
 def institution_flows(days: int = 10) -> pd.DataFrame:
-    """回傳每檔 近days日 外資/投信/自營 淨買賣超(張) + 融券增減(張)。"""
+    """回傳每檔 近days日 外資/投信/自營 淨買賣超(張) + 融資增減 + 融券增減(張)。"""
     with connect() as conn:
         inst = pd.read_sql(
             "SELECT date, stock_id, foreign_net, trust_net, dealer_net FROM institutional", conn)
-        mg = pd.read_sql("SELECT date, stock_id, short_balance FROM margin", conn)
+        mg = pd.read_sql("SELECT date, stock_id, margin_balance, short_balance FROM margin", conn)
 
-    out = pd.DataFrame(columns=["stock_id", "外資", "投信", "自營", "融券增減"])
+    out = pd.DataFrame(columns=["stock_id", *_FLOW_COLS])
     if not inst.empty:
         win = sorted(inst["date"].unique())[-days:]
         iw = inst[inst["date"].isin(win)]
-        agg = iw.groupby("stock_id").agg(
+        out = iw.groupby("stock_id").agg(
             外資=("foreign_net", "sum"),
             投信=("trust_net", "sum"),
             自營=("dealer_net", "sum")).reset_index()
-        out = agg
-    # 融券增減 = 窗末餘額 − 窗初餘額（近days日淨變化）
+    # 融資/融券增減 = 近days日 窗末餘額 − 窗初餘額
     if not mg.empty:
-        mwin = sorted(mg["date"].unique())[-days:]
-        mw = mg[mg["date"].isin(mwin)].dropna(subset=["short_balance"])
-        if not mw.empty:
-            first = mw.sort_values("date").groupby("stock_id")["short_balance"].first()
-            last = mw.sort_values("date").groupby("stock_id")["short_balance"].last()
-            sc = (last - first).rename("融券增減").reset_index()
-            out = out.merge(sc, on="stock_id", how="left") if not out.empty else sc
+        for col, name in (("margin_balance", "融資增減"), ("short_balance", "融券增減")):
+            delta = _window_delta(mg, col, name, days)
+            if not delta.empty:
+                out = out.merge(delta, on="stock_id", how="left") if not out.empty else delta
     return out
 
 
@@ -47,7 +58,7 @@ def enrich(df: pd.DataFrame, days: int = 10, flows: pd.DataFrame | None = None) 
     if f is None or f.empty:
         return df
     df = df.merge(f, on="stock_id", how="left")
-    for c in ("外資", "投信", "自營", "融券增減"):
+    for c in _FLOW_COLS:
         if c in df.columns:
             df[c] = df[c].astype("Int64")  # 保留 NA、整數顯示
     return df

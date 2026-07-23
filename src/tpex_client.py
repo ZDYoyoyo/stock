@@ -82,9 +82,10 @@ def institutional(date: str) -> list[dict]:
         sid = row[0].strip()
         if not _STOCK_RE.match(sid) or len(row) < 23:
             continue
+        # 外資＝外陸資(col4)＋外資自營商(col7)，對齊官方三大法人合計定義（col7 近年多為 0）
         out.append({
             "date": iso, "stock_id": sid,
-            "foreign_net": int(_num(row[4]) / 1000),   # 外資及陸資(不含外資自營)
+            "foreign_net": int((_num(row[4]) + _num(row[7])) / 1000),  # 外資及陸資＋外資自營
             "trust_net": int(_num(row[13]) / 1000),     # 投信
             "dealer_net": int(_num(row[22]) / 1000),    # 自營商合計
         })

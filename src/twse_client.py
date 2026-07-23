@@ -117,15 +117,19 @@ def institutional(date: str) -> list[dict]:
         i_dealer = fields.index("自營商買賣超股數")
     except ValueError:
         return []
+    # 外資＝外陸資(不含外資自營商)＋外資自營商，才等於官方「三大法人合計」定義。
+    # （外資自營商欄近年多為 0，但仍併入以保證 外資+投信+自營=合計 恆等）
+    i_fdealer = fields.index("外資自營商買賣超股數") if "外資自營商買賣超股數" in fields else None
     iso = f"{date[:4]}-{date[4:6]}-{date[6:]}"
     out = []
     for row in d.get("data", []):
         sid = row[i_sid].strip()
         if not _STOCK_RE.match(sid):
             continue
+        foreign = _num(row[i_foreign]) + (_num(row[i_fdealer]) if i_fdealer is not None else 0)
         out.append({
             "date": iso, "stock_id": sid,
-            "foreign_net": int(_num(row[i_foreign]) / 1000),
+            "foreign_net": int(foreign / 1000),
             "trust_net": int(_num(row[i_trust]) / 1000),
             "dealer_net": int(_num(row[i_dealer]) / 1000),
         })
