@@ -5,9 +5,9 @@
 一旦有未提交改動，`git pull` 會為了保護它們而整個中止（Aborting），
 連程式碼都更新不到。
 
-解法：pull 前先把 data/history/ 的本地改動丟棄（採遠端版；下次跑盤後
-會由本地 DB 重新 dump 回來），工作區乾淨 → pull 一定過。
-⚠️ 只丟 data/history/（可重生鏡像），**絕不動 data/portfolio.csv**（你的持股）。
+解法：pull 前若 data/history/ 有未提交改動，先呼叫 commit_data 幫你
+dump+commit+push 上去（**不再丟棄**，因為現在要一天天累積歷史），
+工作區乾淨後 pull 一定不會因它中止。commit_data 也會保護 data/portfolio.csv。
 若 portfolio.csv 擋住，請先 `python -m scripts.sync_portfolio` 再來。
 
 用法（專案根目錄）：
@@ -19,7 +19,7 @@ import time
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parent.parent
-REGEN_DIR = "data/history"          # 可自動重生的資料鏡像；pull 前丟棄本地改動
+REGEN_DIR = "data/history"          # 資料鏡像；pull 前若有未提交改動先 commit+push 上去
 PROTECT = "data/portfolio.csv"      # 你的持股，永不丟
 
 
@@ -48,10 +48,16 @@ def _portfolio_dirty() -> bool:
 def main() -> int:
     br = _branch()
 
-    # 1) 丟棄 data/history/ 的本地改動（可重生鏡像，採遠端版；不碰 portfolio.csv）
-    if (ROOT / REGEN_DIR).exists():
-        _git("checkout", "--", REGEN_DIR, quiet=True)
-        print(f"🧹 已還原 {REGEN_DIR}/ 的本地改動（可重生鏡像，採遠端版）")
+    # 1) 先把 data/history/ 的本地累積資料 commit 起來（不再丟棄！）。
+    #    早期版本是「丟棄採遠端版」，但現在要一天天累積歷史，丟棄會刪掉還沒上傳的資料。
+    #    改為：有未提交的資料改動 → 呼叫 commit_data 幫你 dump+commit+push，
+    #    工作區乾淨後 pull 一定不會因它中止。（commit_data 也會保護 portfolio.csv）
+    dirty = subprocess.run(["git", "status", "--porcelain", "--", REGEN_DIR],
+                           cwd=str(ROOT), capture_output=True, text=True)
+    if dirty.stdout.strip():
+        print("📦 偵測到本機累積資料未上傳，先幫你 commit+push …")
+        from scripts import commit_data
+        commit_data.sync()
 
     # 2) 若持股檔有未提交改動，先提醒（避免 pull 因它中止或誤蓋）
     if _portfolio_dirty():
