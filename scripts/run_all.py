@@ -139,7 +139,9 @@ def _landmine_warn(f, df, label="T11 候選"):
     f.write(f"\n> 🧨 **{label}排雷提醒**（財務/籌碼/技術紅旗，建議先避開或查清）：\n")
     for r in hi.itertuples():
         flags = getattr(r, "紅旗", "") or ""
-        f.write(f"> - {r.stock_id} {r.name}：{r.風險}　{flags}\n")
+        ind = getattr(r, "產業", None)
+        ind = f"（{ind}）" if isinstance(ind, str) and ind else ""
+        f.write(f"> - {r.stock_id} {r.name}{ind}：{r.風險}　{flags}\n")
 
 
 def _section(f, title, df, cols, n=15, skipped=False, note=None):
@@ -154,6 +156,9 @@ def _section(f, title, df, cols, n=15, skipped=False, note=None):
         keep = [c for c in cols if c in df.columns]
         disp = df[keep].head(n).rename(columns=report_html.COLUMN_LABELS)
         f.write(disp.to_markdown(index=False) + "\n")
+        if len(df) > n:
+            f.write(f"\n> 📄 僅顯示前 {n} 名，共 {len(df)} 檔符合；"
+                    "完整清單見同資料夾的同名 CSV 檔（可用 Excel 開）。\n")
 
 
 def _holdings_attribution(pf_view):
@@ -487,6 +492,21 @@ def main():
             "cols": ["代號", "名稱", "張數", "成本", "現價", "損益%", "損益金額", "停損", "狀態"],
             "signed": ["損益%", "損益金額"],
             "attribution": pf_attr})
+    # 各軌「完整清單」另存 CSV（Excel 可開，utf-8-sig 免亂碼）：報告只列前N名，全部見 CSV
+    _slugs = {"T11": "波段T11", "T16": "波段T16", "T12": "成長T12",
+              "長期": "長期", "當沖": "當沖", "持股": "我的持股"}
+    csv_written = []
+    for b in blocks:
+        d = b.get("df")
+        if d is None or d.empty:
+            continue
+        slug = next((v for k, v in _slugs.items() if k in b["title"]), "清單")
+        name = f"{today}_{slug}.csv"
+        cols = [c for c in b["cols"] if c in d.columns]
+        report_html.rename_cn(d[cols]).to_csv(OUTPUT_DIR / name, index=False, encoding="utf-8-sig")
+        b["csv_name"] = name
+        csv_written.append(name)
+
     inter = [f"{s} {nm.get(s,'')}" for s in both]
     html = report_html.build(today, reg, gm.summary_lines(glob), gm.sox_signal(glob),
                              blocks, intersection=inter, followthrough=ft, ftstats=ftstats)
@@ -495,6 +515,8 @@ def main():
 
     print(f"\n✅ 整合報告 → {path}")
     print(f"   HTML（瀏覽器開、表格對齊）→ {html_path}")
+    if csv_written:
+        print(f"   完整清單 CSV（Excel 可開）→ {OUTPUT_DIR}/ 內：{'、'.join(csv_written)}")
     print(f"   波段T11 {len(df11)} / T16 {len(df16)} ｜ T12 {0 if df12 is None else len(df12)}"
           f" ｜ 當沖 {len(dfdt)}"
           + (f" ｜ 長期 {len(dflt)}" if dflt is not None else " ｜ 長期(略過)"))
