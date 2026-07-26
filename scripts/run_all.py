@@ -13,6 +13,7 @@
     python -m scripts.run_all --skip-longterm # 略過較慢的長期軌
 """
 import argparse
+import os
 import subprocess
 import sys
 from datetime import date
@@ -31,6 +32,11 @@ from src.screeners import revenue_momentum as t12
 from src.screeners import landmine
 
 _T16_SHOW = 15   # T16 抗跌強勢顯示/排雷檔數
+
+
+def _is_cloud() -> bool:
+    """雲端/排程沙箱（另有自身提交流程）→ 盤後不自動 push，避免與其衝突。本機兩者皆無。"""
+    return bool(os.getenv("CLAUDE_CODE_REMOTE") or os.getenv("IS_SANDBOX"))
 
 
 def _update(days: int):
@@ -200,7 +206,19 @@ def main():
     ap.add_argument("--notify", action="store_true", help="把摘要推播到手機（Telegram/Email，需設 .env）")
     ap.add_argument("--skip-landmine", action="store_true", help="略過波段候選(T11+T16)排雷（省 FinMind 呼叫、加快）")
     ap.add_argument("--days", type=int, default=12)
+    ap.add_argument("--no-sync", action="store_true",
+                    help="盤後不自動把累積資料 commit+push 到 GitHub（本機預設會自動同步）")
     args = ap.parse_args()
+
+    # 換電腦/新環境：先用 data/history CSV 把歷史載回 DB（累積歷史的關鍵）。
+    # 同機為冪等 upsert（CSV==DB → 無變動）；新機才真正把整段歷史種回空 DB。
+    try:
+        from src import datastore
+        if datastore.has_history():
+            res = datastore.load()
+            print("[資料] 由 CSV 載回 DB（累積歷史）：" + "，".join(f"{k} {v}" for k, v in res.items()))
+    except Exception as e:
+        print(f"[資料] 載回 DB 略過：{e}")
 
     if not args.no_update:
         _update(args.days)
@@ -423,6 +441,16 @@ def main():
         ok, ch, detail = notify(_summary(today, reg, glob, df11, df16, inter, dflt, df12, pf_view, pf_summary, dfdt, ft, ftstats),
                                 subject=f"台股每日報告 {today}", file_path=str(html_path))
         print(f"   📲 推播（{ch}）：{'成功' if ok else '失敗 - ' + detail}")
+
+    # 盤後自動把累積資料（DB→CSV）commit+push 到 GitHub，讓歷史一天天累積、可跨電腦。
+    # 本機才做；雲端/排程有自身提交流程，跳過以免衝突。--no-sync 可關閉。
+    if not args.no_sync and not _is_cloud():
+        print("[同步] 上傳累積資料到 GitHub …")
+        try:
+            from scripts import commit_data
+            commit_data.sync()
+        except Exception as e:
+            print(f"[同步] 略過（{e}）；資料仍在本機，下次會再嘗試上傳。")
 
 
 if __name__ == "__main__":
