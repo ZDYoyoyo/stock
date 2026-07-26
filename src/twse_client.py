@@ -120,6 +120,7 @@ def institutional(date: str) -> list[dict]:
     # 外資＝外陸資(不含外資自營商)＋外資自營商，才等於官方「三大法人合計」定義。
     # （外資自營商欄近年多為 0，但仍併入以保證 外資+投信+自營=合計 恆等）
     i_fdealer = fields.index("外資自營商買賣超股數") if "外資自營商買賣超股數" in fields else None
+    i_total = fields.index("三大法人買賣超股數") if "三大法人買賣超股數" in fields else None
     iso = f"{date[:4]}-{date[4:6]}-{date[6:]}"
     out = []
     for row in d.get("data", []):
@@ -127,11 +128,15 @@ def institutional(date: str) -> list[dict]:
         if not _STOCK_RE.match(sid):
             continue
         foreign = _num(row[i_foreign]) + (_num(row[i_fdealer]) if i_fdealer is not None else 0)
+        # total_net 取官方「三大法人買賣超股數」合計欄（整段股數先加總再/1000，才對得起券商）
+        total_shares = (_num(row[i_total]) if i_total is not None
+                        else foreign + _num(row[i_trust]) + _num(row[i_dealer]))
         out.append({
             "date": iso, "stock_id": sid,
             "foreign_net": int(foreign / 1000),
             "trust_net": int(_num(row[i_trust]) / 1000),
             "dealer_net": int(_num(row[i_dealer]) / 1000),
+            "total_net": int(total_shares / 1000),
         })
     return out
 

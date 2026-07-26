@@ -16,6 +16,7 @@ CREATE TABLE IF NOT EXISTS institutional (
     foreign_net INTEGER,      -- 外資買賣超（張）
     trust_net INTEGER,        -- 投信買賣超（張）
     dealer_net INTEGER,       -- 自營商買賣超（張）
+    total_net INTEGER,        -- 三大法人買賣超合計（張，官方合計欄；對得起券商App今日數）
     PRIMARY KEY (date, stock_id)
 );
 CREATE TABLE IF NOT EXISTS margin (
@@ -56,6 +57,7 @@ def connect():
 # 故對舊 .db 以 ALTER TABLE 補上（欄已存在則略過）。
 _MIGRATIONS = {
     "margin": [("short_balance", "INTEGER")],
+    "institutional": [("total_net", "INTEGER")],
 }
 
 

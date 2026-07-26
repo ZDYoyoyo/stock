@@ -85,6 +85,31 @@ def _today_px():
     return out
 
 
+def _today_inst():
+    """回傳 {sid: 今日三大法人合計(張，正=買超)}，取 institutional 最新日的單日合計。
+
+    用途：與券商App顯示的「今日三大法人買賣超合計」對帳（旁邊的『外資10日』等是近10日
+    累積、看趨勢；此欄是今天單日、對得起券商數字）。
+    """
+    import pandas as pd
+    from src.db import connect
+    with connect() as conn:
+        try:
+            df = pd.read_sql("SELECT date, stock_id, foreign_net, trust_net, dealer_net, "
+                             "total_net FROM institutional", conn)
+        except Exception:   # 舊 DB 尚無 total_net 欄
+            df = pd.read_sql("SELECT date, stock_id, foreign_net, trust_net, dealer_net "
+                             "FROM institutional", conn)
+            df["total_net"] = pd.NA
+    if df.empty:
+        return {}
+    last = sorted(df["date"].unique())[-1]
+    d = df[df["date"] == last].copy()
+    comp = d["foreign_net"] + d["trust_net"] + d["dealer_net"]      # 三分項相加（退路）
+    tot = pd.to_numeric(d["total_net"], errors="coerce").fillna(comp)  # 優先用官方合計欄
+    return dict(zip(d["stock_id"], tot.astype(int)))
+
+
 def _add_today(df, tpx):
     """把今日收盤/今日漲跌% 併進 df（依 stock_id）。"""
     if df is None or df.empty or "stock_id" not in df.columns:
@@ -288,6 +313,12 @@ def main():
     df12 = flows_mod.enrich(df12, flows=_flows)   # 五軌一致：成長軌也看法人/資券
     dflt = flows_mod.enrich(dflt, flows=_flows)   # 長期軌也看法人/資券
 
+    # 併入「今日法人」= 今日三大法人合計(單日)，讓各軌能直接對帳券商App今日數
+    _tinst = _today_inst()
+    for d in (df11, df16, df12, dflt, dfdt):
+        if d is not None and not d.empty and _tinst:
+            d["今日法人"] = d["stock_id"].map(_tinst).astype("Int64")
+
     # 併入產業別（對齊 T12/長期軌；FinMind 一次 call 全市場，抓不到則欄位留白，不影響其他欄）
     from src import enrich as enrich_mod
     try:
@@ -300,13 +331,13 @@ def main():
             d["產業"] = d["stock_id"].map(_ind)
 
     # 資料日期說明（避免區間值/基準日收盤被誤讀成單日/最新日）
-    _flownote = ("　外資/投信/自營＝近10日淨買賣超(張，正=買超)；"
-                 "融資增減／融券增減＝近10日融資／融券餘額變化(張，正=增加)。")
+    _flownote = ("　今日法人＝今日三大法人買賣超合計(張，正=買超；此欄對得起券商App今日數)；"
+                 "外資10日/投信10日/自營10日＝近10日淨買賣超(張，正=買超，看趨勢非今日)；"
+                 "融資增減10日／融券增減10日＝近10日融資／融券餘額變化(張，正=增加)。")
     note11 = (_asof_note(df11, "t11") or "") + _flownote
     note16 = (_asof_note(df16, "t16") or "") + _flownote
     notedt = ((_asof_note(dfdt, "daytrade") or "") + "。" + report_html.DAYTRADE_NOTE
-              + " " + report_html.BIAS_NOTE
-              + "　外資/投信/自營＝近10日淨買賣超(張)；融資增減／融券增減＝近10日餘額變化(張)。")
+              + " " + report_html.BIAS_NOTE + _flownote)
 
     OUTPUT_DIR.mkdir(parents=True, exist_ok=True)
     today = date.today().isoformat()
@@ -331,13 +362,13 @@ def main():
 
         _section(f, "🟡 波段｜T11 法人吸貨（上市投信/上櫃外資）", df11,
                  ["stock_id", "name", "market", "產業", "investor", "close", "今日收盤", "今日漲跌%",
-                  "外資", "投信", "自營", "融資增減", "融券增減",
+                  "今日法人", "外資", "投信", "自營", "融資增減", "融券增減",
                   "price_gain_%", "consec_buy_days", "buy_ratio_%", "千張大戶%", "風險", "紅旗", "score"],
                  note=note11)
         _landmine_warn(f, df11)
         _section(f, "🟡 波段｜T16 抗跌強勢", df16,
                  ["stock_id", "name", "market", "產業", "今日收盤", "今日漲跌%",
-                  "外資", "投信", "自營", "融資增減", "融券增減",
+                  "今日法人", "外資", "投信", "自營", "融資增減", "融券增減",
                   "return_%", "vs_market_%", "風險", "紅旗"], note=note16)
         _landmine_warn(f, df16, "T16 強勢榜")
         if not df11.empty and not df16.empty:
@@ -348,16 +379,16 @@ def main():
 
         _section(f, "🚀 成長｜T12 月營收動能（YoY強+近月加速）", df12,
                  ["stock_id", "name", "market", "產業", "今日收盤", "今日漲跌%",
-                  "外資", "投信", "自營", "融資增減", "融券增減", "YoY%",
+                  "今日法人", "外資", "投信", "自營", "融資增減", "融券增減", "YoY%",
                   "累計YoY%", "MoM%", "加速度", "站上20MA", "score"], n=20, note=_flownote.strip())
         _section(f, "🟢 長期｜價值+成長+配息", dflt,
                  ["stock_id", "name", "產業", "今日收盤", "今日漲跌%",
-                  "外資", "投信", "自營", "融資增減", "融券增減", "殖利率%", "PER",
+                  "今日法人", "外資", "投信", "自營", "融資增減", "融券增減", "殖利率%", "PER",
                   "ROE估%", "營收YoY%", "連配息年", "score"], skipped=args.skip_longterm,
                  note=_flownote.strip())
         _section(f, "🔴 當沖候選｜高波動+高流動（盤中盯，非即時訊號）", dfdt,
                  ["stock_id", "name", "market", "產業", "今日收盤", "今日漲跌%", "多空傾向", "與大盤",
-                  "外資", "投信", "自營", "融資增減", "融券增減", "當日振幅%", "均振幅%", "量能倍數"],
+                  "今日法人", "外資", "投信", "自營", "融資增減", "融券增減", "當日振幅%", "均振幅%", "量能倍數"],
                  note=notedt)
         if not pf_view.empty:
             f.write(f"\n## 📋 我的持股（總損益 {pf_summary['總損益']:+,}"
@@ -390,32 +421,32 @@ def main():
     blocks = [
         {"title": "🟡 波段｜T11 法人吸貨（上市投信/上櫃外資）", "df": df11, "note": note11,
          "cols": ["stock_id", "name", "market", "產業", "investor", "close", "今日收盤", "今日漲跌%",
-                  "外資", "投信", "自營", "融資增減", "融券增減",
+                  "今日法人", "外資", "投信", "自營", "融資增減", "融券增減",
                   "price_gain_%", "consec_buy_days", "buy_ratio_%", "千張大戶%", "風險", "紅旗", "score"],
-         "signed": ["今日漲跌%", "price_gain_%", "外資", "投信", "自營", "融資增減", "融券增減"],
+         "signed": ["今日漲跌%", "price_gain_%", "今日法人", "外資", "投信", "自營", "融資增減", "融券增減"],
          "landmine": True, "landmine_label": "T11 候選",
          "after_intersection": True},
         {"title": "🟡 波段｜T16 抗跌強勢", "df": df16, "note": note16, "n": 15,
          "cols": ["stock_id", "name", "market", "產業", "今日收盤", "今日漲跌%",
-                  "外資", "投信", "自營", "融資增減", "融券增減",
+                  "今日法人", "外資", "投信", "自營", "融資增減", "融券增減",
                   "return_%", "vs_market_%", "風險", "紅旗"],
-         "signed": ["今日漲跌%", "return_%", "vs_market_%", "外資", "投信", "自營", "融資增減", "融券增減"],
+         "signed": ["今日漲跌%", "return_%", "vs_market_%", "今日法人", "外資", "投信", "自營", "融資增減", "融券增減"],
          "landmine": True, "landmine_label": "T16 強勢榜"},
         {"title": "🚀 成長｜T12 月營收動能（YoY強+近月加速）", "df": df12, "n": 20, "note": _flownote.strip(),
          "cols": ["stock_id", "name", "market", "產業", "今日收盤", "今日漲跌%",
-                  "外資", "投信", "自營", "融資增減", "融券增減", "YoY%",
+                  "今日法人", "外資", "投信", "自營", "融資增減", "融券增減", "YoY%",
                   "累計YoY%", "MoM%", "加速度", "站上20MA", "score"],
-         "signed": ["今日漲跌%", "外資", "投信", "自營", "融資增減", "融券增減",
+         "signed": ["今日漲跌%", "今日法人", "外資", "投信", "自營", "融資增減", "融券增減",
                     "YoY%", "累計YoY%", "MoM%", "加速度"]},
         {"title": "🟢 長期｜價值+成長+配息", "df": dflt, "skipped": args.skip_longterm, "note": _flownote.strip(),
          "cols": ["stock_id", "name", "產業", "今日收盤", "今日漲跌%",
-                  "外資", "投信", "自營", "融資增減", "融券增減", "殖利率%", "PER", "ROE估%",
+                  "今日法人", "外資", "投信", "自營", "融資增減", "融券增減", "殖利率%", "PER", "ROE估%",
                   "營收YoY%", "連配息年", "score"],
-         "signed": ["今日漲跌%", "外資", "投信", "自營", "融資增減", "融券增減", "營收YoY%"]},
+         "signed": ["今日漲跌%", "今日法人", "外資", "投信", "自營", "融資增減", "融券增減", "營收YoY%"]},
         {"title": "🔴 當沖候選｜高波動+高流動（盤中盯，非即時訊號）", "df": dfdt, "note": notedt, "n": 20,
          "cols": ["stock_id", "name", "market", "產業", "今日收盤", "今日漲跌%", "多空傾向", "與大盤",
-                  "外資", "投信", "自營", "融資增減", "融券增減", "當日振幅%", "均振幅%", "量能倍數"],
-         "signed": ["今日漲跌%", "外資", "投信", "自營", "融資增減", "融券增減"]},
+                  "今日法人", "外資", "投信", "自營", "融資增減", "融券增減", "當日振幅%", "均振幅%", "量能倍數"],
+         "signed": ["今日漲跌%", "今日法人", "外資", "投信", "自營", "融資增減", "融券增減"]},
     ]
     if not pf_view.empty:
         blocks.append({
