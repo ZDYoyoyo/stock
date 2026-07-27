@@ -95,93 +95,157 @@ def compute_t11_entries(panel: dict, params: T11Params = None) -> dict:
     return out
 
 
+def _atr_map(bar_list, n: int = 14) -> dict:
+    """回傳 {date: ATR(至該日)}；bar_list 為 [(date,(o,h,l,c))] 升序。不足 n 日的日期不列入。"""
+    out, trs, prev_close = {}, [], None
+    for dt, (o, h, l, c) in bar_list:
+        tr = (h - l) if prev_close is None else max(h - l, abs(h - prev_close), abs(l - prev_close))
+        trs.append(tr)
+        if len(trs) >= n:
+            out[dt] = sum(trs[-n:]) / n
+        prev_close = c
+    return out
+
+
+def _stop_price(entry: float, entry_date: str, atr_at: dict, stop):
+    """依停損設定回傳停損價；None=不停損。stop=("pct",0.08) 或 ("atr",2.0)。"""
+    if not stop:
+        return None
+    kind, param = stop
+    if kind == "pct":
+        return entry * (1 - param)
+    if kind == "atr":
+        a = atr_at.get(entry_date)
+        return entry - param * a if a and a > 0 else None
+    return None
+
+
 def run_portfolio(panel: dict, entries_by_date: dict, *,
                   init_capital: float = 1_000_000, max_positions: int = 5,
-                  hold_days: int = 20) -> BacktestResult:
-    """逐日模擬組合：訊號日收盤後掛單、隔日開盤進場、持有 hold_days 個交易日後收盤出場。
+                  hold_days: int = 20, stop=None, regime_ok: dict = None,
+                  atr_n: int = 14) -> BacktestResult:
+    """逐日模擬組合：訊號日收盤後掛單、隔日開盤進場、持有到期或觸停損出場。
 
-    - 最多同時持 max_positions 檔，等權（每檔目標＝當前權益 / max_positions）。
-    - 逐日以收盤 mark-to-market 記錄權益。含手續費+證交稅。
+    - 最多同時持 max_positions 檔，等權。逐日收盤 mark-to-market。含手續費+證交稅。
+    - stop：None＝固定持有 hold_days；("pct",0.08)＝跌破進場價8%停損；
+            ("atr",2.0)＝進場價−2×ATR 停損。觸價當日以停損價(或跳空開盤價)出場。
+    - regime_ok：{date: bool}，False 的日子不開新倉（擇時濾網）。
     - entries_by_date: {訊號日: [(stock_id, score)]}；同日多檔依 score 高者優先。
     """
-    # 全體交易日（各檔日期聯集，升序）+ 每檔 date→(open,close) 快速查表
     all_dates = sorted({d for df in panel.values() for d in df["date"]})
-    px = {}
+    bars, atr = {}, {}          # bars[sid][date]=(o,h,l,c)；atr[sid][date]=ATR
     for sid, df in panel.items():
         df = df.sort_values("date")
-        px[sid] = {r.date: (r.open, r.close) for r in df.itertuples()}
+        bl = []
+        for r in df.itertuples():
+            o, c = r.open, r.close
+            h = getattr(r, "high", c) or c
+            l = getattr(r, "low", c) or c
+            bl.append((r.date, (o, h, l, c)))
+        bars[sid] = dict(bl)
+        atr[sid] = _atr_map(bl, atr_n)
 
     cash = init_capital
-    positions: dict[str, dict] = {}   # sid -> {shares, entry_price, entry_date, exit_idx}
-    pending: list = []                # 待進場 [(sid,)]，訊號日收盤產生、隔日開盤執行
+    positions: dict[str, dict] = {}
+    pending: list = []
     trades: list[Trade] = []
     equity_curve = []
     days_with_pos = 0
+
+    def _close_trade(sid, pos, exit_p, d):
+        nonlocal cash
+        proceeds = pos["shares"] * exit_p * (1 - _sell_cost())
+        cost_basis = pos["shares"] * pos["entry_price"] * (1 + _buy_cost())
+        cash += proceeds
+        trades.append(Trade(sid, pos["entry_date"], d, pos["entry_price"], exit_p,
+                            pos["shares"], proceeds / cost_basis - 1, proceeds - cost_basis))
 
     for di, d in enumerate(all_dates):
         # 1) 開盤：執行昨日掛單（進場）
         if pending:
             slots = max_positions - len(positions)
             if slots > 0:
-                target = (cash + _holdings_value(positions, px, d, use="open")) / max_positions
+                target = (cash + _holdings_value(positions, bars, d, 0)) / max_positions
                 for sid in pending:
                     if slots <= 0 or sid in positions:
                         continue
-                    quote = px.get(sid, {}).get(d)
-                    if not quote or quote[0] <= 0:
+                    bar = bars.get(sid, {}).get(d)
+                    if not bar or bar[0] <= 0:
                         continue
-                    entry = quote[0]
-                    budget = min(target, cash)
-                    shares = int(budget / (entry * (1 + _buy_cost())))
+                    entry = bar[0]
+                    shares = int(min(target, cash) / (entry * (1 + _buy_cost())))
                     if shares <= 0:
                         continue
                     cost = shares * entry * (1 + _buy_cost())
                     if cost > cash:
                         continue
                     cash -= cost
-                    positions[sid] = {"shares": shares, "entry_price": entry,
-                                      "entry_date": d, "exit_idx": di + hold_days}
+                    positions[sid] = {
+                        "shares": shares, "entry_price": entry, "entry_date": d,
+                        "exit_idx": di + hold_days,
+                        "stop": _stop_price(entry, d, atr.get(sid, {}), stop)}
                     slots -= 1
             pending = []
 
-        # 2) 收盤：到期出場
+        # 2) 出場：先判停損（盤中觸價），再判到期（收盤）
         for sid in list(positions.keys()):
             pos = positions[sid]
-            if di >= pos["exit_idx"]:
-                quote = px.get(sid, {}).get(d)
-                if not quote or quote[1] <= 0:
-                    continue
-                exit_p = quote[1]
-                proceeds = pos["shares"] * exit_p * (1 - _sell_cost())
-                cost_basis = pos["shares"] * pos["entry_price"] * (1 + _buy_cost())
-                cash += proceeds
-                ret = proceeds / cost_basis - 1
-                trades.append(Trade(sid, pos["entry_date"], d, pos["entry_price"],
-                                    exit_p, pos["shares"], ret, proceeds - cost_basis))
+            bar = bars.get(sid, {}).get(d)
+            if not bar:
+                continue
+            o, h, l, c = bar
+            stopped = pos["stop"] is not None and di > 0 and l <= pos["stop"]
+            if stopped:
+                fill = min(o, pos["stop"]) if o <= pos["stop"] else pos["stop"]  # 跳空以開盤成交
+                _close_trade(sid, pos, fill, d)
+                del positions[sid]
+            elif di >= pos["exit_idx"] and c > 0:
+                _close_trade(sid, pos, c, d)
                 del positions[sid]
 
-        # 3) 收盤 mark-to-market → 記錄權益
-        equity = cash + _holdings_value(positions, px, d, use="close")
+        # 3) 收盤 mark-to-market
+        equity = cash + _holdings_value(positions, bars, d, 3)
         equity_curve.append((d, equity))
         if positions:
             days_with_pos += 1
 
-        # 4) 收盤後掛今日訊號 → 隔日開盤進場（避免用當日資訊當日成交的未來函數）
+        # 4) 收盤後掛今日訊號 → 隔日開盤進場（擇時濾網擋掉爛環境的日子）
         if di < len(all_dates) - 1 and len(positions) < max_positions:
-            cands = sorted(entries_by_date.get(d, []), key=lambda x: x[1], reverse=True)
-            pending = [sid for sid, _ in cands if sid not in positions]
+            if regime_ok is None or regime_ok.get(d, True):
+                cands = sorted(entries_by_date.get(d, []), key=lambda x: x[1], reverse=True)
+                pending = [sid for sid, _ in cands if sid not in positions]
 
     eq = pd.Series({d: v for d, v in equity_curve})
     metrics = _metrics(eq, trades, days_with_pos, len(all_dates))
     return BacktestResult(equity=eq, trades=trades, metrics=metrics)
 
 
-def _holdings_value(positions, px, d, use="close") -> float:
-    idx = 0 if use == "open" else 1
+def compute_regime_ok(panel: dict, threshold: float = 45.0, ma: int = 20) -> dict:
+    """擇時濾網：回傳 {date: bool}，當日 universe 站上 MA{ma} 比例 >= threshold% 才可開新倉。
+
+    以 panel 成分股當市場代理，近似 regime.py 的市場廣度紅綠燈（爛環境減少進場）。
+    """
+    all_dates = sorted({d for df in panel.values() for d in df["date"]})
+    tally = {d: [0, 0] for d in all_dates}   # date -> [站上數, 總數]
+    for df in panel.values():
+        df = df.sort_values("date")
+        closes = df["close"].tolist()
+        dates = df["date"].tolist()
+        for i in range(ma - 1, len(closes)):
+            m = sum(closes[i + 1 - ma:i + 1]) / ma
+            t = tally[dates[i]]
+            t[1] += 1
+            if closes[i] >= m:
+                t[0] += 1
+    return {d: (t[1] == 0 or t[0] / t[1] * 100 >= threshold) for d, t in tally.items()}
+
+
+def _holdings_value(positions, bars, d, idx) -> float:
+    """idx：0=開盤、3=收盤（bars 為 OHLC）。缺報價時以進場價估。"""
     total = 0.0
     for sid, pos in positions.items():
-        quote = px.get(sid, {}).get(d)
-        price = quote[idx] if quote and quote[idx] > 0 else pos["entry_price"]
+        bar = bars.get(sid, {}).get(d)
+        price = bar[idx] if bar and bar[idx] > 0 else pos["entry_price"]
         total += pos["shares"] * price
     return total
 

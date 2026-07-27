@@ -9,13 +9,16 @@ sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 
 import pandas as pd
 
-from src.portfolio_backtest import _metrics, run_portfolio
+from src.portfolio_backtest import (
+    _metrics, compute_regime_ok, run_portfolio,
+)
 
 
-def _panel(sid, prices, start="2024-01-01"):
-    """造單檔面板：open=close=prices[i]（方便手算），日期為連續工作日。"""
+def _panel(sid, prices, start="2024-01-01", lows=None, highs=None):
+    """造單檔面板：open=close=prices[i]（方便手算）。lows/highs 可指定觸停損情境。"""
     dates = pd.bdate_range(start, periods=len(prices)).strftime("%Y-%m-%d").tolist()
     df = pd.DataFrame({"date": dates, "open": prices, "close": prices,
+                       "high": highs or prices, "low": lows or prices,
                        "volume": [1000] * len(prices)})
     return {sid: df}, dates
 
@@ -87,6 +90,46 @@ def test_max_positions_respected():
     assert res.metrics["n_trades"] > 0
     assert (res.equity > 0).all()
     assert res.metrics["exposure_%"] > 0
+
+
+def test_hard_stop_triggers_and_caps_loss():
+    """進場後大跌，硬性 -10% 停損應在觸價日以停損價出場、虧損被限制在約 -10%+成本。"""
+    # 進場價=100（day1 open）；day4 開盤 95(>停損90) 但盤中低點 85(觸價) → 以停損價 90 出場
+    prices = [100, 100, 100, 95, 100, 100]
+    lows = [100, 100, 100, 85, 100, 100]     # day4 盤中最低 85
+    panel, dates = _panel("A", prices, lows=lows)
+    entries = {dates[0]: [("A", 1.0)]}        # 只在第一天發訊號
+    res = run_portfolio(panel, entries, max_positions=1, hold_days=20,
+                        stop=("pct", 0.10))
+    assert len(res.trades) == 1
+    t = res.trades[0]
+    assert abs(t.exit_price - 90) < 1e-6      # 以停損價 90 出場（未跳空穿越）
+    assert -0.12 < t.ret < -0.09              # 虧損被限制在約 -10%(+成本)
+
+def test_stop_reduces_drawdown_vs_none():
+    """同一波下跌，有停損的 MaxDD 應優於（淺於）不停損。"""
+    prices = [100, 100, 95, 90, 80, 70, 75, 80]
+    lows = [100, 100, 95, 90, 80, 70, 75, 80]
+    panel, dates = _panel("A", prices, lows=lows)
+    entries = {dates[0]: [("A", 1.0)]}
+    no_stop = run_portfolio(panel, entries, max_positions=1, hold_days=20)
+    with_stop = run_portfolio(panel, entries, max_positions=1, hold_days=20,
+                              stop=("pct", 0.05))
+    assert with_stop.metrics["MaxDD_%"] > no_stop.metrics["MaxDD_%"]  # 較淺(較接近0)
+
+def test_regime_blocks_entries():
+    """regime_ok 全 False 時不應開任何倉。"""
+    panel, dates = _panel("A", [100.0] * 6)
+    entries = {d: [("A", 1.0)] for d in dates}
+    res = run_portfolio(panel, entries, max_positions=1, hold_days=1,
+                        regime_ok={d: False for d in dates})
+    assert res.metrics["n_trades"] == 0
+
+def test_compute_regime_ok_shape():
+    prices = list(range(100, 130))            # 單調上升 → 後段都站上 MA20
+    panel, dates = _panel("A", prices)
+    ok = compute_regime_ok(panel, threshold=50, ma=20)
+    assert ok[dates[-1]] is True              # 上升股末段必站上均線
 
 
 if __name__ == "__main__":
