@@ -13,6 +13,7 @@
     python -m scripts.run_all --skip-longterm # 略過較慢的長期軌
 """
 import argparse
+import os
 import subprocess
 import sys
 from datetime import date
@@ -31,6 +32,11 @@ from src.screeners import revenue_momentum as t12
 from src.screeners import landmine
 
 _T16_SHOW = 15   # T16 抗跌強勢顯示/排雷檔數
+
+
+def _is_cloud() -> bool:
+    """雲端/排程沙箱（另有自身提交流程）→ 盤後不自動 push，避免與其衝突。本機兩者皆無。"""
+    return bool(os.getenv("CLAUDE_CODE_REMOTE") or os.getenv("IS_SANDBOX"))
 
 
 def _update(days: int):
@@ -79,6 +85,41 @@ def _today_px():
     return out
 
 
+def _today_flows():
+    """回傳每檔『今日單日』法人分項＋資券變化 DataFrame（供各軌 merge，依 stock_id）。
+
+    欄位：外資今日/投信今日/自營今日（張，正=買超，取 institutional 最新日）、
+          融資今日/融券今日（張，正=增加，= 最新日餘額 − 前一日餘額）。
+    看「今天誰在動」；旁邊的 外資10日 等看近10日趨勢。
+    """
+    import pandas as pd
+    from src.db import connect
+    with connect() as conn:
+        inst = pd.read_sql(
+            "SELECT date, stock_id, foreign_net, trust_net, dealer_net FROM institutional", conn)
+        mg = pd.read_sql("SELECT date, stock_id, margin_balance, short_balance FROM margin", conn)
+
+    out = None
+    if not inst.empty:
+        last = sorted(inst["date"].unique())[-1]
+        out = (inst[inst["date"] == last][["stock_id", "foreign_net", "trust_net", "dealer_net"]]
+               .rename(columns={"foreign_net": "外資今日", "trust_net": "投信今日",
+                                "dealer_net": "自營今日"}))
+    if not mg.empty:
+        dts = sorted(mg["date"].unique())
+        cur = mg[mg["date"] == dts[-1]].set_index("stock_id")
+        chg = pd.DataFrame({"stock_id": cur.index})
+        if len(dts) >= 2:
+            pv = mg[mg["date"] == dts[-2]].set_index("stock_id")
+            chg["融資今日"] = (cur["margin_balance"] - pv["margin_balance"].reindex(cur.index)).values
+            chg["融券今日"] = (cur["short_balance"] - pv["short_balance"].reindex(cur.index)).values
+        else:
+            chg["融資今日"] = pd.NA
+            chg["融券今日"] = pd.NA
+        out = chg if out is None else out.merge(chg, on="stock_id", how="outer")
+    return out if out is not None else pd.DataFrame(columns=["stock_id"])
+
+
 def _add_today(df, tpx):
     """把今日收盤/今日漲跌% 併進 df（依 stock_id）。"""
     if df is None or df.empty or "stock_id" not in df.columns:
@@ -98,7 +139,9 @@ def _landmine_warn(f, df, label="T11 候選"):
     f.write(f"\n> 🧨 **{label}排雷提醒**（財務/籌碼/技術紅旗，建議先避開或查清）：\n")
     for r in hi.itertuples():
         flags = getattr(r, "紅旗", "") or ""
-        f.write(f"> - {r.stock_id} {r.name}：{r.風險}　{flags}\n")
+        ind = getattr(r, "產業", None)
+        ind = f"（{ind}）" if isinstance(ind, str) and ind else ""
+        f.write(f"> - {r.stock_id} {r.name}{ind}：{r.風險}　{flags}\n")
 
 
 def _section(f, title, df, cols, n=15, skipped=False, note=None):
@@ -113,6 +156,9 @@ def _section(f, title, df, cols, n=15, skipped=False, note=None):
         keep = [c for c in cols if c in df.columns]
         disp = df[keep].head(n).rename(columns=report_html.COLUMN_LABELS)
         f.write(disp.to_markdown(index=False) + "\n")
+        if len(df) > n:
+            f.write(f"\n> 📄 僅顯示前 {n} 名，共 {len(df)} 檔符合；"
+                    "完整清單見同資料夾的同名 CSV 檔（可用 Excel 開）。\n")
 
 
 def _holdings_attribution(pf_view):
@@ -200,7 +246,19 @@ def main():
     ap.add_argument("--notify", action="store_true", help="把摘要推播到手機（Telegram/Email，需設 .env）")
     ap.add_argument("--skip-landmine", action="store_true", help="略過波段候選(T11+T16)排雷（省 FinMind 呼叫、加快）")
     ap.add_argument("--days", type=int, default=12)
+    ap.add_argument("--no-sync", action="store_true",
+                    help="盤後不自動把累積資料 commit+push 到 GitHub（本機預設會自動同步）")
     args = ap.parse_args()
+
+    # 換電腦/新環境：先用 data/history CSV 把歷史載回 DB（累積歷史的關鍵）。
+    # 同機為冪等 upsert（CSV==DB → 無變動）；新機才真正把整段歷史種回空 DB。
+    try:
+        from src import datastore
+        if datastore.has_history():
+            res = datastore.load()
+            print("[資料] 由 CSV 載回 DB（累積歷史）：" + "，".join(f"{k} {v}" for k, v in res.items()))
+    except Exception as e:
+        print(f"[資料] 載回 DB 略過：{e}")
 
     if not args.no_update:
         _update(args.days)
@@ -270,6 +328,30 @@ def main():
     df12 = flows_mod.enrich(df12, flows=_flows)   # 五軌一致：成長軌也看法人/資券
     dflt = flows_mod.enrich(dflt, flows=_flows)   # 長期軌也看法人/資券
 
+    # 併入「今日單日」法人分項(外資/投信/自營今日)＋資券今日增減，看「今天誰在動」
+    _tf = _today_flows()
+    _tcols = ["外資今日", "投信今日", "自營今日", "融資今日", "融券今日"]
+    if _tf is not None and not _tf.empty:
+        df11 = df11.merge(_tf, on="stock_id", how="left") if not df11.empty else df11
+        df16 = df16.merge(_tf, on="stock_id", how="left") if not df16.empty else df16
+        dfdt = dfdt.merge(_tf, on="stock_id", how="left") if not dfdt.empty else dfdt
+        df12 = df12.merge(_tf, on="stock_id", how="left") if df12 is not None and not df12.empty else df12
+        dflt = dflt.merge(_tf, on="stock_id", how="left") if dflt is not None and not dflt.empty else dflt
+        for d in (df11, df16, df12, dflt, dfdt):
+            if d is not None and not d.empty:
+                for c in _tcols:
+                    if c in d.columns:
+                        d[c] = d[c].astype("Int64")
+
+    # 併入籌碼訊號：連買/連賣天數(三大法人分開,看誰狂買誰狂賣)、法人主導度%、一句 emoji 訊號
+    from src import chip_signal
+    _sig = chip_signal.compute()
+    df11 = chip_signal.enrich(df11, _sig)
+    df16 = chip_signal.enrich(df16, _sig)
+    dfdt = chip_signal.enrich(dfdt, _sig)
+    df12 = chip_signal.enrich(df12, _sig)
+    dflt = chip_signal.enrich(dflt, _sig)
+
     # 併入產業別（對齊 T12/長期軌；FinMind 一次 call 全市場，抓不到則欄位留白，不影響其他欄）
     from src import enrich as enrich_mod
     try:
@@ -282,13 +364,17 @@ def main():
             d["產業"] = d["stock_id"].map(_ind)
 
     # 資料日期說明（避免區間值/基準日收盤被誤讀成單日/最新日）
-    _flownote = ("　外資/投信/自營＝近10日淨買賣超(張，正=買超)；"
-                 "融資增減／融券增減＝近10日融資／融券餘額變化(張，正=增加)。")
+    _flownote = ("　外資今日/投信今日/自營今日＝今日單日買賣超(張，正=買超，對得起券商App今日數)；"
+                 "融資今日/融券今日＝今日單日融資／融券餘額增減(張，正=增加)；"
+                 "外資10日/投信10日/自營10日＝近10日累積淨買賣超(張，看趨勢)；"
+                 "融資增減10日／融券增減10日＝近10日融資／融券餘額變化(張)；"
+                 "外資連/投信連/自營連＝當前連續同向天數(正=連買、負=連賣，看誰在狂買/狂賣)；"
+                 "主導度%＝今日三大法人淨額÷今日成交量(法人是否主導此檔)；"
+                 "籌碼訊號＝今日共識／今昨背離／連買連賣強度的一句話合成。")
     note11 = (_asof_note(df11, "t11") or "") + _flownote
     note16 = (_asof_note(df16, "t16") or "") + _flownote
     notedt = ((_asof_note(dfdt, "daytrade") or "") + "。" + report_html.DAYTRADE_NOTE
-              + " " + report_html.BIAS_NOTE
-              + "　外資/投信/自營＝近10日淨買賣超(張)；融資增減／融券增減＝近10日餘額變化(張)。")
+              + " " + report_html.BIAS_NOTE + _flownote)
 
     OUTPUT_DIR.mkdir(parents=True, exist_ok=True)
     today = date.today().isoformat()
@@ -313,13 +399,13 @@ def main():
 
         _section(f, "🟡 波段｜T11 法人吸貨（上市投信/上櫃外資）", df11,
                  ["stock_id", "name", "market", "產業", "investor", "close", "今日收盤", "今日漲跌%",
-                  "外資", "投信", "自營", "融資增減", "融券增減",
+                  "外資今日", "投信今日", "自營今日", "融資今日", "融券今日", "外資", "投信", "自營", "融資增減", "融券增減", "外資連", "投信連", "自營連", "主導度%", "籌碼訊號",
                   "price_gain_%", "consec_buy_days", "buy_ratio_%", "千張大戶%", "風險", "紅旗", "score"],
                  note=note11)
         _landmine_warn(f, df11)
         _section(f, "🟡 波段｜T16 抗跌強勢", df16,
                  ["stock_id", "name", "market", "產業", "今日收盤", "今日漲跌%",
-                  "外資", "投信", "自營", "融資增減", "融券增減",
+                  "外資今日", "投信今日", "自營今日", "融資今日", "融券今日", "外資", "投信", "自營", "融資增減", "融券增減", "外資連", "投信連", "自營連", "主導度%", "籌碼訊號",
                   "return_%", "vs_market_%", "風險", "紅旗"], note=note16)
         _landmine_warn(f, df16, "T16 強勢榜")
         if not df11.empty and not df16.empty:
@@ -330,16 +416,16 @@ def main():
 
         _section(f, "🚀 成長｜T12 月營收動能（YoY強+近月加速）", df12,
                  ["stock_id", "name", "market", "產業", "今日收盤", "今日漲跌%",
-                  "外資", "投信", "自營", "融資增減", "融券增減", "YoY%",
+                  "外資今日", "投信今日", "自營今日", "融資今日", "融券今日", "外資", "投信", "自營", "融資增減", "融券增減", "外資連", "投信連", "自營連", "主導度%", "籌碼訊號", "YoY%",
                   "累計YoY%", "MoM%", "加速度", "站上20MA", "score"], n=20, note=_flownote.strip())
         _section(f, "🟢 長期｜價值+成長+配息", dflt,
                  ["stock_id", "name", "產業", "今日收盤", "今日漲跌%",
-                  "外資", "投信", "自營", "融資增減", "融券增減", "殖利率%", "PER",
+                  "外資今日", "投信今日", "自營今日", "融資今日", "融券今日", "外資", "投信", "自營", "融資增減", "融券增減", "外資連", "投信連", "自營連", "主導度%", "籌碼訊號", "殖利率%", "PER",
                   "ROE估%", "營收YoY%", "連配息年", "score"], skipped=args.skip_longterm,
                  note=_flownote.strip())
         _section(f, "🔴 當沖候選｜高波動+高流動（盤中盯，非即時訊號）", dfdt,
                  ["stock_id", "name", "market", "產業", "今日收盤", "今日漲跌%", "多空傾向", "與大盤",
-                  "外資", "投信", "自營", "融資增減", "融券增減", "當日振幅%", "均振幅%", "量能倍數"],
+                  "外資今日", "投信今日", "自營今日", "融資今日", "融券今日", "外資", "投信", "自營", "融資增減", "融券增減", "外資連", "投信連", "自營連", "主導度%", "籌碼訊號", "當日振幅%", "均振幅%", "量能倍數"],
                  note=notedt)
         if not pf_view.empty:
             f.write(f"\n## 📋 我的持股（總損益 {pf_summary['總損益']:+,}"
@@ -372,32 +458,32 @@ def main():
     blocks = [
         {"title": "🟡 波段｜T11 法人吸貨（上市投信/上櫃外資）", "df": df11, "note": note11,
          "cols": ["stock_id", "name", "market", "產業", "investor", "close", "今日收盤", "今日漲跌%",
-                  "外資", "投信", "自營", "融資增減", "融券增減",
+                  "外資今日", "投信今日", "自營今日", "融資今日", "融券今日", "外資", "投信", "自營", "融資增減", "融券增減", "外資連", "投信連", "自營連", "主導度%", "籌碼訊號",
                   "price_gain_%", "consec_buy_days", "buy_ratio_%", "千張大戶%", "風險", "紅旗", "score"],
-         "signed": ["今日漲跌%", "price_gain_%", "外資", "投信", "自營", "融資增減", "融券增減"],
+         "signed": ["今日漲跌%", "price_gain_%", "外資今日", "投信今日", "自營今日", "融資今日", "融券今日", "外資", "投信", "自營", "融資增減", "融券增減", "外資連", "投信連", "自營連", "主導度%", "籌碼訊號"],
          "landmine": True, "landmine_label": "T11 候選",
          "after_intersection": True},
         {"title": "🟡 波段｜T16 抗跌強勢", "df": df16, "note": note16, "n": 15,
          "cols": ["stock_id", "name", "market", "產業", "今日收盤", "今日漲跌%",
-                  "外資", "投信", "自營", "融資增減", "融券增減",
+                  "外資今日", "投信今日", "自營今日", "融資今日", "融券今日", "外資", "投信", "自營", "融資增減", "融券增減", "外資連", "投信連", "自營連", "主導度%", "籌碼訊號",
                   "return_%", "vs_market_%", "風險", "紅旗"],
-         "signed": ["今日漲跌%", "return_%", "vs_market_%", "外資", "投信", "自營", "融資增減", "融券增減"],
+         "signed": ["今日漲跌%", "return_%", "vs_market_%", "外資今日", "投信今日", "自營今日", "融資今日", "融券今日", "外資", "投信", "自營", "融資增減", "融券增減", "外資連", "投信連", "自營連", "主導度%", "籌碼訊號"],
          "landmine": True, "landmine_label": "T16 強勢榜"},
         {"title": "🚀 成長｜T12 月營收動能（YoY強+近月加速）", "df": df12, "n": 20, "note": _flownote.strip(),
          "cols": ["stock_id", "name", "market", "產業", "今日收盤", "今日漲跌%",
-                  "外資", "投信", "自營", "融資增減", "融券增減", "YoY%",
+                  "外資今日", "投信今日", "自營今日", "融資今日", "融券今日", "外資", "投信", "自營", "融資增減", "融券增減", "外資連", "投信連", "自營連", "主導度%", "籌碼訊號", "YoY%",
                   "累計YoY%", "MoM%", "加速度", "站上20MA", "score"],
-         "signed": ["今日漲跌%", "外資", "投信", "自營", "融資增減", "融券增減",
+         "signed": ["今日漲跌%", "外資今日", "投信今日", "自營今日", "融資今日", "融券今日", "外資", "投信", "自營", "融資增減", "融券增減", "外資連", "投信連", "自營連", "主導度%", "籌碼訊號",
                     "YoY%", "累計YoY%", "MoM%", "加速度"]},
         {"title": "🟢 長期｜價值+成長+配息", "df": dflt, "skipped": args.skip_longterm, "note": _flownote.strip(),
          "cols": ["stock_id", "name", "產業", "今日收盤", "今日漲跌%",
-                  "外資", "投信", "自營", "融資增減", "融券增減", "殖利率%", "PER", "ROE估%",
+                  "外資今日", "投信今日", "自營今日", "融資今日", "融券今日", "外資", "投信", "自營", "融資增減", "融券增減", "外資連", "投信連", "自營連", "主導度%", "籌碼訊號", "殖利率%", "PER", "ROE估%",
                   "營收YoY%", "連配息年", "score"],
-         "signed": ["今日漲跌%", "外資", "投信", "自營", "融資增減", "融券增減", "營收YoY%"]},
+         "signed": ["今日漲跌%", "外資今日", "投信今日", "自營今日", "融資今日", "融券今日", "外資", "投信", "自營", "融資增減", "融券增減", "外資連", "投信連", "自營連", "主導度%", "籌碼訊號", "營收YoY%"]},
         {"title": "🔴 當沖候選｜高波動+高流動（盤中盯，非即時訊號）", "df": dfdt, "note": notedt, "n": 20,
          "cols": ["stock_id", "name", "market", "產業", "今日收盤", "今日漲跌%", "多空傾向", "與大盤",
-                  "外資", "投信", "自營", "融資增減", "融券增減", "當日振幅%", "均振幅%", "量能倍數"],
-         "signed": ["今日漲跌%", "外資", "投信", "自營", "融資增減", "融券增減"]},
+                  "外資今日", "投信今日", "自營今日", "融資今日", "融券今日", "外資", "投信", "自營", "融資增減", "融券增減", "外資連", "投信連", "自營連", "主導度%", "籌碼訊號", "當日振幅%", "均振幅%", "量能倍數"],
+         "signed": ["今日漲跌%", "外資今日", "投信今日", "自營今日", "融資今日", "融券今日", "外資", "投信", "自營", "融資增減", "融券增減", "外資連", "投信連", "自營連", "主導度%", "籌碼訊號"]},
     ]
     if not pf_view.empty:
         blocks.append({
@@ -406,6 +492,21 @@ def main():
             "cols": ["代號", "名稱", "張數", "成本", "現價", "損益%", "損益金額", "停損", "狀態"],
             "signed": ["損益%", "損益金額"],
             "attribution": pf_attr})
+    # 各軌「完整清單」另存 CSV（Excel 可開，utf-8-sig 免亂碼）：報告只列前N名，全部見 CSV
+    _slugs = {"T11": "波段T11", "T16": "波段T16", "T12": "成長T12",
+              "長期": "長期", "當沖": "當沖", "持股": "我的持股"}
+    csv_written = []
+    for b in blocks:
+        d = b.get("df")
+        if d is None or d.empty:
+            continue
+        slug = next((v for k, v in _slugs.items() if k in b["title"]), "清單")
+        name = f"{today}_{slug}.csv"
+        cols = [c for c in b["cols"] if c in d.columns]
+        report_html.rename_cn(d[cols]).to_csv(OUTPUT_DIR / name, index=False, encoding="utf-8-sig")
+        b["csv_name"] = name
+        csv_written.append(name)
+
     inter = [f"{s} {nm.get(s,'')}" for s in both]
     html = report_html.build(today, reg, gm.summary_lines(glob), gm.sox_signal(glob),
                              blocks, intersection=inter, followthrough=ft, ftstats=ftstats)
@@ -414,6 +515,8 @@ def main():
 
     print(f"\n✅ 整合報告 → {path}")
     print(f"   HTML（瀏覽器開、表格對齊）→ {html_path}")
+    if csv_written:
+        print(f"   完整清單 CSV（Excel 可開）→ {OUTPUT_DIR}/ 內：{'、'.join(csv_written)}")
     print(f"   波段T11 {len(df11)} / T16 {len(df16)} ｜ T12 {0 if df12 is None else len(df12)}"
           f" ｜ 當沖 {len(dfdt)}"
           + (f" ｜ 長期 {len(dflt)}" if dflt is not None else " ｜ 長期(略過)"))
@@ -423,6 +526,16 @@ def main():
         ok, ch, detail = notify(_summary(today, reg, glob, df11, df16, inter, dflt, df12, pf_view, pf_summary, dfdt, ft, ftstats),
                                 subject=f"台股每日報告 {today}", file_path=str(html_path))
         print(f"   📲 推播（{ch}）：{'成功' if ok else '失敗 - ' + detail}")
+
+    # 盤後自動把累積資料（DB→CSV）commit+push 到 GitHub，讓歷史一天天累積、可跨電腦。
+    # 本機才做；雲端/排程有自身提交流程，跳過以免衝突。--no-sync 可關閉。
+    if not args.no_sync and not _is_cloud():
+        print("[同步] 上傳累積資料到 GitHub …")
+        try:
+            from scripts import commit_data
+            commit_data.sync()
+        except Exception as e:
+            print(f"[同步] 略過（{e}）；資料仍在本機，下次會再嘗試上傳。")
 
 
 if __name__ == "__main__":

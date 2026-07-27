@@ -88,6 +88,7 @@ def institutional(date: str) -> list[dict]:
             "foreign_net": int((_num(row[4]) + _num(row[7])) / 1000),  # 外資及陸資＋外資自營
             "trust_net": int(_num(row[13]) / 1000),     # 投信
             "dealer_net": int(_num(row[22]) / 1000),    # 自營商合計
+            "total_net": int(_num(row[23]) / 1000),     # col23 三大法人合計（對得起券商）
         })
     return out
 

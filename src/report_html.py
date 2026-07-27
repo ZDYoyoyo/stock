@@ -17,7 +17,7 @@ COLUMN_LABELS = {
     "name": "名稱",
     "market": "市場",
     "investor": "法人",
-    "close": "收盤",
+    "close": "基準收盤",   # T11 為法人資料基準日收盤（非最新交易日），與旁邊「今日收盤」區分
     "price_gain_%": "區間漲幅%",
     "consec_buy_days": "連買天數",
     "buy_ratio_%": "吃貨比重%",
@@ -27,6 +27,12 @@ COLUMN_LABELS = {
     "return_%": "區間漲幅%",
     "vs_market_%": "相對大盤%",
     "score": "評分",
+    # 三大法人/資券：欄名標明時間窗，避免被誤讀成單日（外資今日=單日、外資=近10日累積）
+    "外資": "外資10日",
+    "投信": "投信10日",
+    "自營": "自營10日",
+    "融資增減": "融資增減10日",
+    "融券增減": "融券增減10日",
     # 財務面英文縮寫 → 中文（純英文欄給中文；底部另附術語小抄解釋概念）
     "PER": "本益比",
     "PBR": "股價淨值比",
@@ -141,7 +147,9 @@ def _landmine_html(df, label="T11 候選") -> str:
     items = ""
     for r in hi.itertuples():
         flags = getattr(r, "紅旗", "") or ""
-        items += f"<li>{r.stock_id} {r.name}：{r.風險}　{flags}</li>"
+        ind = getattr(r, "產業", None)
+        ind = f"（{ind}）" if isinstance(ind, str) and ind else ""
+        items += f"<li>{r.stock_id} {r.name}{ind}：{r.風險}　{flags}</li>"
     return (f'<div class="warn">🧨 <b>{label}排雷提醒</b>'
             f'（財務/籌碼/技術紅旗，建議先避開或查清）：<ul>{items}</ul></div>')
 
@@ -209,7 +217,10 @@ def build(today, reg, glob_lines, sox, blocks, intersection=None,
             shown = df.head(n) if n else df
             body += _table(shown, b["cols"], b.get("signed", []))
             if n and len(df) > n:
-                body += f'<p class="note">（僅顯示前 {n} 名，共 {len(df)} 檔符合；完整清單見 CSV/終端機）</p>'
+                csv = b.get("csv_name")
+                where = (f'完整清單見同資料夾 <code>{csv}</code>（可用 Excel 開）'
+                         if csv else "完整清單見同資料夾 CSV")
+                body += f'<p class="note">（僅顯示前 {n} 名，共 {len(df)} 檔符合；{where}）</p>'
         # 排雷提醒 callout（對齊 .md）：df 內有高風險則列紅旗
         if b.get("landmine"):
             body += _landmine_html(df, b.get("landmine_label", "T11 候選"))
