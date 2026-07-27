@@ -10,7 +10,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 import pandas as pd
 
 from src.portfolio_backtest import (
-    _metrics, compute_regime_ok, run_portfolio,
+    _metrics, compute_regime_ok, run_portfolio, slice_panel,
 )
 
 
@@ -130,6 +130,15 @@ def test_compute_regime_ok_shape():
     panel, dates = _panel("A", prices)
     ok = compute_regime_ok(panel, threshold=50, ma=20)
     assert ok[dates[-1]] is True              # 上升股末段必站上均線
+
+
+def test_slice_panel_bounds():
+    panel, dates = _panel("A", list(range(100, 110)))   # 10 天
+    lo, hi = dates[3], dates[6]
+    sub = slice_panel(panel, lo=lo, hi=hi)
+    got = sub["A"]["date"].tolist()
+    assert got == dates[3:7]                             # 含邊界共 4 天
+    assert slice_panel(panel, lo=dates[-1] + "9") == {}  # 全被切掉→空面板
 
 
 if __name__ == "__main__":

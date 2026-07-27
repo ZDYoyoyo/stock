@@ -220,6 +220,20 @@ def run_portfolio(panel: dict, entries_by_date: dict, *,
     return BacktestResult(equity=eq, trades=trades, metrics=metrics)
 
 
+def slice_panel(panel: dict, lo: str = None, hi: str = None) -> dict:
+    """回傳只含 lo<=date<=hi 的新面板（供樣本外分期回測切窗；不改原面板）。"""
+    out = {}
+    for sid, df in panel.items():
+        d = df
+        if lo is not None:
+            d = d[d["date"] >= lo]
+        if hi is not None:
+            d = d[d["date"] <= hi]
+        if not d.empty:
+            out[sid] = d.reset_index(drop=True)
+    return out
+
+
 def compute_regime_ok(panel: dict, threshold: float = 45.0, ma: int = 20) -> dict:
     """擇時濾網：回傳 {date: bool}，當日 universe 站上 MA{ma} 比例 >= threshold% 才可開新倉。
 
