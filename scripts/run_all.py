@@ -157,7 +157,18 @@ def _section(f, title, df, cols, n=15, skipped=False, note=None):
         f.write("（今日無符合條件標的）\n")
     else:
         keep = [c for c in cols if c in df.columns]
-        disp = df[keep].head(n).rename(columns=report_html.COLUMN_LABELS)
+        disp = df[keep].head(n).copy()
+        # 今日+10日 合併同格（MD 用「今／10日」斜線併排），今日欄併入後移除
+        merged_labels = {}
+        for anchor, today_col in report_html.MERGE_PAIRS.items():
+            if anchor in disp.columns and today_col in disp.columns:
+                disp[anchor] = [report_html.fmt_pair_text(t, d)
+                                for t, d in zip(disp[today_col], disp[anchor])]
+                merged_labels[anchor] = report_html.MERGE_BASE[anchor] + "今/10日"
+        drop = [t for a, t in report_html.MERGE_PAIRS.items()
+                if a in disp.columns and t in disp.columns]
+        disp = disp.drop(columns=drop).rename(
+            columns={**report_html.COLUMN_LABELS, **merged_labels})
         f.write(disp.to_markdown(index=False) + "\n")
         if len(df) > n:
             f.write(f"\n> 📄 僅顯示前 {n} 名，共 {len(df)} 檔符合；"
@@ -369,10 +380,9 @@ def main():
     # 資料日期說明（避免區間值/基準日收盤被誤讀成單日/最新日）
     # 分組多行說明（\n 分隔；MD 逐行加 >、HTML 換 <br>，避免擠成一長段）
     _flownote = (
-        "📊 今日單日｜外資今日·投信今日·自營今日＝今日買賣超(🔴買超/🟢賣超)；"
-        "融資今日·融券今日＝餘額增減(🔴增/🟢減)"
+        "📊 法人/資券欄｜每格兩個數＝今日單日／近10日累積(HTML 上下兩行、MD 以／分隔)；"
+        "外資·投信·自營＝買賣超(🔴買超/🟢賣超)，融資·融券＝餘額增減(🔴增/🟢減)"
         "\n　↳ 融資增＝散戶借錢追價⚠️籌碼較不安定；融券增＝空單多·股價若強有軋空機會(未來須回補)——顏色只表增減，好壞配股價方向看"
-        "\n📈 10日趨勢｜外資10日·投信10日·自營10日＝近10日累積淨買賣超；融資增減10日·融券增減10日＝近10日餘額變化"
         "\n🔁 連續｜外資連·投信連·自營連＝當前連續同向天數(正=連買／負=連賣，看誰在狂買狂賣)"
         "\n🎯 主導度%＝今日法人淨額÷成交量(法人是否主導)；💬 籌碼訊號＝今日共識／連買連賣強度一句話合成"
     )
