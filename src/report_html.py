@@ -206,7 +206,8 @@ def build(today, reg, glob_lines, sox, blocks, intersection=None,
     for b in blocks:
         body += f"<h2>{b['title']}</h2>"
         if b.get("note"):
-            body += f'<p class="note">{b["note"]}</p>'
+            note_html = "<br>".join(ln for ln in b["note"].split("\n") if ln.strip())
+            body += f'<p class="note">{note_html}</p>'
         df = b["df"]
         if b.get("skipped"):
             body += "<p>（已略過 --skip-longterm；要看長期軌請跑 <code>python -m scripts.run_longterm</code>）</p>"
