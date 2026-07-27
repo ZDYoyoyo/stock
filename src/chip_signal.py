@@ -21,23 +21,10 @@ _STREAK_STRONG = 5   # 連買/連賣 ≥ 幾天算「狂買/狂賣」，才進�
 
 def _streak(nets) -> int:
     """給一串『由新到舊』的每日淨額，回傳當前連續同向天數。
-    正=連買、負=連賣、0=最新為平盤或無資料。"""
-    for v in nets:
-        if v and v > 0:
-            sign = 1
-            break
-        if v and v < 0:
-            sign = -1
-            break
-    else:
-        return 0
-    n = 0
-    for v in nets:
-        if (v > 0 and sign > 0) or (v < 0 and sign < 0):
-            n += 1
-        else:
-            break
-    return n * sign
+    正=連買、負=連賣、0=最新為平盤或無資料。（共用 signals.consecutive_net_days，
+    該函式吃時間順序 舊→新，故傳入前反轉。）"""
+    from .signals import consecutive_net_days
+    return consecutive_net_days(list(nets)[::-1])
 
 
 def _label(ft, tt, dt, f10, fstk, tstk, dstk) -> str:

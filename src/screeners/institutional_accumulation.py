@@ -27,14 +27,9 @@ def _load() -> tuple[pd.DataFrame, pd.DataFrame, pd.DataFrame, pd.DataFrame]:
 
 
 def _consecutive_buy_days(net_series: pd.Series) -> int:
-    """從最近一天往回數，連續 > 0 的天數。"""
-    count = 0
-    for v in reversed(net_series.tolist()):
-        if v > 0:
-            count += 1
-        else:
-            break
-    return count
+    """從最近一天往回數，連續買超天數（共用 signals.consecutive_net_days，賣超回 0）。"""
+    from ..signals import consecutive_net_days
+    return max(0, consecutive_net_days(net_series.tolist()))
 
 
 def run() -> pd.DataFrame:
