@@ -65,10 +65,8 @@ def _asof_note(df, kind):
 
 def _today_px():
     """回傳 {sid: (今日收盤, 今日漲跌%)}，取最新交易日 vs 前一日。"""
-    import pandas as pd
-    from src.db import connect
-    with connect() as conn:
-        px = pd.read_sql("SELECT date, stock_id, close FROM price", conn)
+    from src.db import read_table
+    px = read_table("price", use_cache=True)[["date", "stock_id", "close"]]
     if px.empty:
         return {}
     dates = sorted(px["date"].unique())
@@ -93,11 +91,11 @@ def _today_flows():
     看「今天誰在動」；旁邊的 外資10日 等看近10日趨勢。
     """
     import pandas as pd
-    from src.db import connect
-    with connect() as conn:
-        inst = pd.read_sql(
-            "SELECT date, stock_id, foreign_net, trust_net, dealer_net FROM institutional", conn)
-        mg = pd.read_sql("SELECT date, stock_id, margin_balance, short_balance FROM margin", conn)
+    from src.db import read_table
+    inst = read_table("institutional", use_cache=True)[
+        ["date", "stock_id", "foreign_net", "trust_net", "dealer_net"]]
+    mg = read_table("margin", use_cache=True)[
+        ["date", "stock_id", "margin_balance", "short_balance"]]
 
     out = None
     if not inst.empty:
@@ -276,6 +274,8 @@ def main():
 
     if not args.no_update:
         _update(args.days)
+    from src.db import clear_cache
+    clear_cache()   # 更新完清整表快取，確保各 screener 讀到最新資料（之後同進程只讀一次）
 
     print("[環境] 多空紅綠燈 + 全球市場 …")
     reg = regime_mod.assess()

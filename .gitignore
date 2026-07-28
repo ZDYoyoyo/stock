@@ -5,6 +5,8 @@ data/*
 !data/history/
 data/history/*
 !data/history/*.csv
+# 回測長歷史面板（gzip 壓縮、寫一次不動）納入 git
+!data/history/backtest_panel.csv.gz
 # 持股清單納入 git 同步（跨設備 + 雲端排程可見）；私有 repo 僅你可見
 !data/portfolio.csv
 reports/screener/

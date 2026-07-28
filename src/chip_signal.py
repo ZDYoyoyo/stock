@@ -13,7 +13,7 @@ from __future__ import annotations
 
 import pandas as pd
 
-from .db import connect
+from .db import read_table
 
 _COLS = ["stock_id", "外資連", "投信連", "自營連", "主導度%", "籌碼訊號"]
 _STREAK_STRONG = 5   # 連買/連賣 ≥ 幾天算「狂買/狂賣」，才進訊號標籤
@@ -21,23 +21,10 @@ _STREAK_STRONG = 5   # 連買/連賣 ≥ 幾天算「狂買/狂賣」，才進�
 
 def _streak(nets) -> int:
     """給一串『由新到舊』的每日淨額，回傳當前連續同向天數。
-    正=連買、負=連賣、0=最新為平盤或無資料。"""
-    for v in nets:
-        if v and v > 0:
-            sign = 1
-            break
-        if v and v < 0:
-            sign = -1
-            break
-    else:
-        return 0
-    n = 0
-    for v in nets:
-        if (v > 0 and sign > 0) or (v < 0 and sign < 0):
-            n += 1
-        else:
-            break
-    return n * sign
+    正=連買、負=連賣、0=最新為平盤或無資料。（共用 signals.consecutive_net_days，
+    該函式吃時間順序 舊→新，故傳入前反轉。）"""
+    from .signals import consecutive_net_days
+    return consecutive_net_days(list(nets)[::-1])
 
 
 def _label(ft, tt, dt, f10, fstk, tstk, dstk) -> str:
@@ -64,10 +51,9 @@ def _label(ft, tt, dt, f10, fstk, tstk, dstk) -> str:
 
 def compute(streak_days: int = 30, flow_days: int = 10) -> pd.DataFrame:
     """回傳每檔 [外資連,投信連,自營連,主導度%,籌碼訊號]（依 stock_id）。無資料回空表。"""
-    with connect() as conn:
-        inst = pd.read_sql(
-            "SELECT date, stock_id, foreign_net, trust_net, dealer_net FROM institutional", conn)
-        px = pd.read_sql("SELECT date, stock_id, volume FROM price", conn)
+    inst = read_table("institutional", use_cache=True)[
+        ["date", "stock_id", "foreign_net", "trust_net", "dealer_net"]]
+    px = read_table("price", use_cache=True)[["date", "stock_id", "volume"]]
     if inst.empty:
         return pd.DataFrame(columns=_COLS)
 

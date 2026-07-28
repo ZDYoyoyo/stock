@@ -12,10 +12,10 @@ import time
 import pandas as pd
 
 from .finmind_client import fetch
+from .signals import FEE, FEE_DISCOUNT, TAX, consec_buy_series, round_trip_return
 
-FEE = 0.001425      # 手續費（單邊）
-FEE_DISCOUNT = 1.0  # 折數，如 5 折填 0.5
-TAX = 0.003         # 證交稅（賣出）
+# 成本模型與連買計算改由 src/signals 共用（回測＝實際同一份）；下列別名保留舊介面相容。
+_round_trip_return = round_trip_return
 
 
 def _load_stock(sid: str, start: str) -> pd.DataFrame:
@@ -38,15 +38,6 @@ def _load_stock(sid: str, start: str) -> pd.DataFrame:
     dfp["trust_net"] = dfp["date"].map(trust).fillna(0)
     dfp["foreign_net"] = dfp["date"].map(foreign).fillna(0)
     return dfp.sort_values("date").reset_index(drop=True)
-
-
-def _round_trip_return(entry_open: float, exit_close: float) -> float:
-    """含成本的報酬率。"""
-    buy_cost = FEE * FEE_DISCOUNT
-    sell_cost = FEE * FEE_DISCOUNT + TAX
-    gross = exit_close / entry_open
-    net = gross * (1 - sell_cost) / (1 + buy_cost) - 1
-    return net
 
 
 def _revenue_yoy_lookup(sid: str, start: str):
@@ -92,10 +83,7 @@ def signal_trades(sid: str, investor: str = "trust", consec_k: int = 4,
     net = df[col].tolist()
     opens, closes, dates = df["open"].tolist(), df["close"].tolist(), df["date"].tolist()
 
-    consec = [0] * len(net)
-    for i in range(len(net)):
-        consec[i] = consec[i - 1] + 1 if (net[i] > 0 and i > 0 and net[i - 1] > 0) \
-            else (1 if net[i] > 0 else 0)
+    consec = consec_buy_series(net)
 
     rows, last_exit = [], -1
     for i in range(mom_days, len(net) - hold_days - 1):
@@ -128,10 +116,7 @@ def backtest(sid: str, investor: str = "trust", consec_k: int = 4,
     opens, closes = df["open"].tolist(), df["close"].tolist()
 
     # 連續買超天數（到第 i 天為止）
-    consec = [0] * len(net)
-    for i in range(len(net)):
-        consec[i] = consec[i - 1] + 1 if (net[i] > 0 and i > 0 and net[i - 1] > 0) \
-            else (1 if net[i] > 0 else 0)
+    consec = consec_buy_series(net)
 
     rets, last_exit = [], -1
     for i in range(len(net) - hold_days - 1):

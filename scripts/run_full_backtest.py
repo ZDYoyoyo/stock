@@ -21,6 +21,7 @@ import pandas as pd
 
 from src.backtest import _load_stock, _revenue_yoy_lookup, _round_trip_return
 from src.db import connect
+from src.signals import consec_buy_series
 
 HOLDS = [5, 10, 20, 40]
 K, MOM = 4, 10
@@ -48,10 +49,7 @@ def _collect(sid, investor, start):
     col = "trust_net" if investor == "trust" else "foreign_net"
     net, op, cl, dt = (df[col].tolist(), df["open"].tolist(),
                        df["close"].tolist(), df["date"].tolist())
-    consec = [0] * len(net)
-    for i in range(len(net)):
-        consec[i] = consec[i - 1] + 1 if (net[i] > 0 and i > 0 and net[i - 1] > 0) \
-            else (1 if net[i] > 0 else 0)
+    consec = consec_buy_series(net)
     res = {h: {"A": [], "D": [], "base": []} for h in HOLDS}
     for h in HOLDS:
         le = -1
