@@ -2,7 +2,33 @@
 import sqlite3
 from contextlib import contextmanager
 
+import pandas as pd
+
 from .config import DB_PATH, DATA_DIR
+
+# 進程內整表快取：run_all 一次會有多個 screener 各自讀 price/institutional/margin 全表，
+# 造成同一張表被重複讀好幾次。use_cache=True 時同一進程只讀一次（回傳副本，呼叫端可安全改）。
+_TABLE_CACHE: dict = {}
+
+
+def read_table(table: str, use_cache: bool = False) -> "pd.DataFrame":
+    """讀整張表為 DataFrame（統一 data-access 入口，取代散落各處的 SELECT *）。
+
+    use_cache=True：同一進程快取該表，之後回傳副本。資料更新後請先 clear_cache()。
+    """
+    if use_cache and table in _TABLE_CACHE:
+        return _TABLE_CACHE[table].copy()
+    with connect() as conn:
+        df = pd.read_sql(f"SELECT * FROM {table}", conn)
+    if use_cache:
+        _TABLE_CACHE[table] = df
+        return df.copy()
+    return df
+
+
+def clear_cache() -> None:
+    """清空整表快取（資料更新後、或需要重讀最新資料時呼叫）。"""
+    _TABLE_CACHE.clear()
 
 _SCHEMA = """
 CREATE TABLE IF NOT EXISTS price (

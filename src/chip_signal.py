@@ -13,7 +13,7 @@ from __future__ import annotations
 
 import pandas as pd
 
-from .db import connect
+from .db import read_table
 
 _COLS = ["stock_id", "外資連", "投信連", "自營連", "主導度%", "籌碼訊號"]
 _STREAK_STRONG = 5   # 連買/連賣 ≥ 幾天算「狂買/狂賣」，才進訊號標籤
@@ -51,10 +51,9 @@ def _label(ft, tt, dt, f10, fstk, tstk, dstk) -> str:
 
 def compute(streak_days: int = 30, flow_days: int = 10) -> pd.DataFrame:
     """回傳每檔 [外資連,投信連,自營連,主導度%,籌碼訊號]（依 stock_id）。無資料回空表。"""
-    with connect() as conn:
-        inst = pd.read_sql(
-            "SELECT date, stock_id, foreign_net, trust_net, dealer_net FROM institutional", conn)
-        px = pd.read_sql("SELECT date, stock_id, volume FROM price", conn)
+    inst = read_table("institutional", use_cache=True)[
+        ["date", "stock_id", "foreign_net", "trust_net", "dealer_net"]]
+    px = read_table("price", use_cache=True)[["date", "stock_id", "volume"]]
     if inst.empty:
         return pd.DataFrame(columns=_COLS)
 
