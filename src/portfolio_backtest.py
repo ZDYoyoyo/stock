@@ -220,6 +220,16 @@ def run_portfolio(panel: dict, entries_by_date: dict, *,
     return BacktestResult(equity=eq, trades=trades, metrics=metrics)
 
 
+def load_panel_csv(path) -> dict:
+    """從壓縮長表（backfill 產出的 csv.gz）讀回 panel dict {sid: df}。離線、快、無需連網。
+
+    長表欄：stock_id,date,open,high,low,close,volume,inst_net,margin_balance。
+    """
+    df = pd.read_csv(path, dtype={"stock_id": str})
+    return {sid: g.sort_values("date").reset_index(drop=True)
+            for sid, g in df.groupby("stock_id")}
+
+
 def slice_panel(panel: dict, lo: str = None, hi: str = None) -> dict:
     """回傳只含 lo<=date<=hi 的新面板（供樣本外分期回測切窗；不改原面板）。"""
     out = {}

@@ -89,22 +89,29 @@ def main():
     ap.add_argument("--stop-pct", type=float, default=0.08, help="硬性停損幅度")
     ap.add_argument("--atr-k", type=float, default=2.0, help="ATR 停損倍數")
     ap.add_argument("--regime-th", type=float, default=45.0, help="擇時濾網：站上MA20比例門檻%")
+    ap.add_argument("--offline", nargs="?", const="data/history/backtest_panel.csv.gz",
+                    help="離線：從回補的 csv.gz 面板讀取，不連網（預設路徑 data/history/backtest_panel.csv.gz）")
     args = ap.parse_args()
 
-    universe = _pick_universe(args.universe)
-    print(f"universe {len(universe)} 檔，起始 {args.start}，"
-          f"最多持 {args.max_pos} 檔、持有 {args.hold} 日"
-          f"{'、含融資濾網' if args.with_margin else '、略過融資濾網'}")
-
-    panel = {}
-    for sid, market in universe:
-        try:
-            df = _load_panel_stock(sid, market, args.start, args.with_margin)
-            if df is not None and len(df) >= 40:
-                panel[sid] = df
-                print(f"  ✓ {sid} ({'外' if market == 'tpex' else '投'}) {len(df)} 日")
-        except Exception as e:
-            print(f"  ✗ {sid} 失敗 {e}")
+    if args.offline:
+        from src.portfolio_backtest import load_panel_csv
+        panel = load_panel_csv(args.offline)
+        print(f"離線面板 {len(panel)} 檔（{args.offline}），"
+              f"最多持 {args.max_pos} 檔、持有 {args.hold} 日")
+    else:
+        universe = _pick_universe(args.universe)
+        print(f"universe {len(universe)} 檔，起始 {args.start}，"
+              f"最多持 {args.max_pos} 檔、持有 {args.hold} 日"
+              f"{'、含融資濾網' if args.with_margin else '、略過融資濾網'}")
+        panel = {}
+        for sid, market in universe:
+            try:
+                df = _load_panel_stock(sid, market, args.start, args.with_margin)
+                if df is not None and len(df) >= 40:
+                    panel[sid] = df
+                    print(f"  ✓ {sid} ({'外' if market == 'tpex' else '投'}) {len(df)} 日")
+            except Exception as e:
+                print(f"  ✗ {sid} 失敗 {e}")
 
     if not panel:
         print("無有效資料，結束")
@@ -144,11 +151,14 @@ def main():
             print(f"  {name:22s}｜{r.summary()}")
 
     period = f"{min(configs[0][1].equity.index)}~{max(configs[0][1].equity.index)}"
+    has_margin = any("margin_balance" in df.columns and df["margin_balance"].notna().any()
+                     for df in panel.values())
+    src = f"離線面板 {args.offline}" if args.offline else f"DB 流動性前 {len(panel)} 檔"
     lines = [
         f"# 組合回測（真實權益曲線）— {today}\n",
-        f"- universe：DB 流動性前 {len(panel)} 檔（⚠️含倖存者偏誤）；期間 {period}",
+        f"- universe：{src}（⚠️含倖存者偏誤）；期間 {period}",
         f"- 策略：真正的 T11 吸貨（signals.t11_pass, point-in-time）"
-        f"{'＋融資濾網' if args.with_margin else '（略過融資濾網）'}",
+        f"{'＋融資濾網' if has_margin else '（略過融資濾網）'}",
         f"- 組合：初始 {args.capital:,.0f}、最多同時持 {args.max_pos} 檔（等權）、"
         f"持有上限 {args.hold} 日；含手續費+證交稅",
         f"- 參考：universe 等權買入持有 {bh_ret:+.1f}%\n",
