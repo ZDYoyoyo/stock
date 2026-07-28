@@ -42,7 +42,24 @@ COLUMN_LABELS = {
     "營收YoY%": "營收年增%",
 }
 
-# 財務術語小抄：給不熟英文縮寫的使用者，附在含財務欄位的報告底部（純文字，md/HTML 通用）。
+# 今日+10日 合併顯示（省欄）：把「外資今日」併進「外資」(=近10日) 同一格。
+# key＝10日欄(anchor，df 內欄名)、value＝對應今日欄。HTML 兩行上色、MD 斜線併排。
+# CSV 不套用（rename_cn 走 COLUMN_LABELS，維持今/10日分開欄，Excel 好篩選）。
+MERGE_PAIRS = {"外資": "外資今日", "投信": "投信今日", "自營": "自營今日",
+               "融資增減": "融資今日", "融券增減": "融券今日"}
+MERGE_BASE = {"外資": "外資", "投信": "投信", "自營": "自營",
+              "融資增減": "融資", "融券增減": "融券"}
+
+
+def _fmt_signed(v):
+    return "—" if pd.isna(v) else f"{v:+,.0f}"
+
+
+def fmt_pair_text(today, tenday):
+    """MD 用：今日／10日 併成一格文字（純文字表格無法兩行）。"""
+    return f"{_fmt_signed(today)}／{_fmt_signed(tenday)}"
+
+
 GLOSSARY = ("📖 術語小抄：本益比(PER)＝股價÷每股盈餘，數字越低越便宜；"
             "年增(YoY)＝與去年同期比；月增(MoM)＝與上月比；"
             "EPS＝每股盈餘(公司幫每股賺多少)；ROE＝股東權益報酬率(獲利能力，越高越好)；"
@@ -96,6 +113,10 @@ table { border-collapse: collapse; width: 100%; font-size: 13px; background: #ff
   border-radius: 8px; overflow: hidden; box-shadow: 0 1px 3px rgba(0,0,0,.06); }
 th, td { padding: 7px 10px; text-align: right; white-space: nowrap; }
 th { background: #2c3e50; color: #fff; font-weight: 600; }
+th small { display:block; font-weight:400; font-size:10px; opacity:.8; margin-top:1px; }
+td.pair { line-height: 1.25; font-variant-numeric: tabular-nums; }
+td.pair .tv { display:block; font-weight:600; }
+td.pair .dv { display:block; font-size:11px; opacity:.62; }
 td:nth-child(-n+3), th:nth-child(-n+3) { text-align: left; }
 tbody tr:nth-child(even) { background: #f7f8fa; }
 tbody tr:hover { background: #eef3fb; }
@@ -118,13 +139,33 @@ def _fmt(v):
     return str(v)
 
 
+def _pair_cell(tv, dv) -> str:
+    """今日+10日 合併格：上行今日(粗)、下行10日(小灰)，各自紅正綠負。"""
+    def span(v, cls):
+        if pd.isna(v):
+            return f'<span class="{cls}">—</span>'
+        color = _UP if v > 0 else (_DOWN if v < 0 else "#888")
+        return f'<span class="{cls}" style="color:{color}">{v:+,.0f}</span>'
+    return f'<td class="pair">{span(tv, "tv")}{span(dv, "dv")}</td>'
+
+
 def _table(df: pd.DataFrame, cols, signed_cols) -> str:
-    cols = [c for c in cols if c in df.columns]
-    head = "".join(f"<th>{label(c)}</th>" for c in cols)
+    # 今日欄併入10日欄同格後隱藏（僅當 anchor 存在時）
+    hide = {t for a, t in MERGE_PAIRS.items() if a in df.columns and t in df.columns}
+    cols = [c for c in cols if c in df.columns and c not in hide]
+    head = ""
+    for c in cols:
+        if c in MERGE_PAIRS and MERGE_PAIRS[c] in df.columns:
+            head += f'<th>{MERGE_BASE[c]}<small>今 / 10日</small></th>'
+        else:
+            head += f"<th>{label(c)}</th>"
     body = ""
     for _, row in df.iterrows():
         tds = ""
         for c in cols:
+            if c in MERGE_PAIRS and MERGE_PAIRS[c] in df.columns:
+                tds += _pair_cell(row[MERGE_PAIRS[c]], row[c])
+                continue
             v = row[c]
             style = ""
             if c in signed_cols and isinstance(v, (int, float)) and pd.notna(v):
@@ -206,7 +247,8 @@ def build(today, reg, glob_lines, sox, blocks, intersection=None,
     for b in blocks:
         body += f"<h2>{b['title']}</h2>"
         if b.get("note"):
-            body += f'<p class="note">{b["note"]}</p>'
+            note_html = "<br>".join(ln for ln in b["note"].split("\n") if ln.strip())
+            body += f'<p class="note">{note_html}</p>'
         df = b["df"]
         if b.get("skipped"):
             body += "<p>（已略過 --skip-longterm；要看長期軌請跑 <code>python -m scripts.run_longterm</code>）</p>"

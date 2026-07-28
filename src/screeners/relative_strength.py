@@ -7,13 +7,12 @@
 import pandas as pd
 
 from ..config import T16
-from ..db import connect
+from ..db import read_table
 
 
 def run() -> pd.DataFrame:
-    with connect() as conn:
-        price = pd.read_sql("SELECT date, stock_id, close, volume FROM price", conn)
-        info = pd.read_sql("SELECT stock_id, stock_name, type FROM stock_info", conn)
+    price = read_table("price", use_cache=True)[["date", "stock_id", "close", "volume"]]
+    info = read_table("stock_info", use_cache=True)[["stock_id", "stock_name", "type"]]
     if price.empty:
         raise SystemExit("資料庫是空的，請先執行：python -m scripts.update_data")
 

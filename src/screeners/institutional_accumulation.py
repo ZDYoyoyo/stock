@@ -14,27 +14,18 @@
 import pandas as pd
 
 from ..config import T11
-from ..db import connect
+from ..db import read_table
 
 
 def _load() -> tuple[pd.DataFrame, pd.DataFrame, pd.DataFrame, pd.DataFrame]:
-    with connect() as conn:
-        price = pd.read_sql("SELECT * FROM price", conn)
-        inst = pd.read_sql("SELECT * FROM institutional", conn)
-        margin = pd.read_sql("SELECT * FROM margin", conn)
-        info = pd.read_sql("SELECT * FROM stock_info", conn)
-    return price, inst, margin, info
+    return (read_table("price", use_cache=True), read_table("institutional", use_cache=True),
+            read_table("margin", use_cache=True), read_table("stock_info", use_cache=True))
 
 
 def _consecutive_buy_days(net_series: pd.Series) -> int:
-    """從最近一天往回數，連續 > 0 的天數。"""
-    count = 0
-    for v in reversed(net_series.tolist()):
-        if v > 0:
-            count += 1
-        else:
-            break
-    return count
+    """從最近一天往回數，連續買超天數（共用 signals.consecutive_net_days，賣超回 0）。"""
+    from ..signals import consecutive_net_days
+    return max(0, consecutive_net_days(net_series.tolist()))
 
 
 def run() -> pd.DataFrame:
@@ -55,10 +46,9 @@ def run() -> pd.DataFrame:
 
     # 以基準日為界，取最近 N 個交易日（價量與法人都對齊到同一窗口）
     win_dates = sorted(d for d in inst["date"].unique() if d <= asof)[-T11.LOOKBACK_DAYS:]
+    ma20 = _ma20_by_stock(price, max(win_dates))   # 用已載入的全 price，不再開第二次連線
     price = price[price["date"].isin(win_dates)]
     inst = inst[inst["date"].isin(win_dates)]
-
-    ma20 = _ma20_by_stock(win_dates)
 
     min_days = T11.LOOKBACK_DAYS - T11.ALLOWED_MISSING_DAYS  # 容許偶發抓取缺日
     results = []
@@ -134,12 +124,9 @@ def run() -> pd.DataFrame:
     return df
 
 
-def _ma20_by_stock(win_dates) -> dict:
-    """算每檔到基準日為止的 20 日均線（不含基準日之後的資料）。"""
-    asof = max(win_dates)
-    with connect() as conn:
-        px = pd.read_sql("SELECT date, stock_id, close FROM price WHERE date <= ?",
-                         conn, params=(asof,))
+def _ma20_by_stock(price: pd.DataFrame, asof: str) -> dict:
+    """用已載入的全 price 算每檔到 asof 為止的 20 日均線（不含 asof 之後），不再另開 DB 連線。"""
+    px = price[price["date"] <= asof]
     out = {}
     for sid, g in px.groupby("stock_id"):
         g = g.sort_values("date").tail(20)

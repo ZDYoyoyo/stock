@@ -14,14 +14,13 @@ from __future__ import annotations
 import pandas as pd
 
 from ..config import T12
-from ..db import connect
+from ..db import read_table
 from ..revenue_client import fetch_all
 
 
 def _price_ctx():
     """回傳 {sid: (close, avg_vol, above_ma20)}，供動能/流動性確認。"""
-    with connect() as conn:
-        px = pd.read_sql("SELECT date, stock_id, close, volume FROM price", conn)
+    px = read_table("price", use_cache=True)[["date", "stock_id", "close", "volume"]]
     out = {}
     for sid, g in px.groupby("stock_id"):
         g = g.sort_values("date")

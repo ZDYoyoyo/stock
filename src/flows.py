@@ -8,7 +8,7 @@ from __future__ import annotations
 
 import pandas as pd
 
-from .db import connect
+from .db import read_table
 
 
 _FLOW_COLS = ("外資", "投信", "自營", "融資增減", "融券增減")
@@ -28,10 +28,10 @@ def _window_delta(df: pd.DataFrame, col: str, name: str, days: int) -> pd.DataFr
 
 def institution_flows(days: int = 10) -> pd.DataFrame:
     """回傳每檔 近days日 外資/投信/自營 淨買賣超(張) + 融資增減 + 融券增減(張)。"""
-    with connect() as conn:
-        inst = pd.read_sql(
-            "SELECT date, stock_id, foreign_net, trust_net, dealer_net FROM institutional", conn)
-        mg = pd.read_sql("SELECT date, stock_id, margin_balance, short_balance FROM margin", conn)
+    inst = read_table("institutional", use_cache=True)[
+        ["date", "stock_id", "foreign_net", "trust_net", "dealer_net"]]
+    mg = read_table("margin", use_cache=True)[
+        ["date", "stock_id", "margin_balance", "short_balance"]]
 
     out = pd.DataFrame(columns=["stock_id", *_FLOW_COLS])
     if not inst.empty:

@@ -65,10 +65,8 @@ def _asof_note(df, kind):
 
 def _today_px():
     """回傳 {sid: (今日收盤, 今日漲跌%)}，取最新交易日 vs 前一日。"""
-    import pandas as pd
-    from src.db import connect
-    with connect() as conn:
-        px = pd.read_sql("SELECT date, stock_id, close FROM price", conn)
+    from src.db import read_table
+    px = read_table("price", use_cache=True)[["date", "stock_id", "close"]]
     if px.empty:
         return {}
     dates = sorted(px["date"].unique())
@@ -93,11 +91,11 @@ def _today_flows():
     看「今天誰在動」；旁邊的 外資10日 等看近10日趨勢。
     """
     import pandas as pd
-    from src.db import connect
-    with connect() as conn:
-        inst = pd.read_sql(
-            "SELECT date, stock_id, foreign_net, trust_net, dealer_net FROM institutional", conn)
-        mg = pd.read_sql("SELECT date, stock_id, margin_balance, short_balance FROM margin", conn)
+    from src.db import read_table
+    inst = read_table("institutional", use_cache=True)[
+        ["date", "stock_id", "foreign_net", "trust_net", "dealer_net"]]
+    mg = read_table("margin", use_cache=True)[
+        ["date", "stock_id", "margin_balance", "short_balance"]]
 
     out = None
     if not inst.empty:
@@ -147,14 +145,28 @@ def _landmine_warn(f, df, label="T11 候選"):
 def _section(f, title, df, cols, n=15, skipped=False, note=None):
     f.write(f"\n## {title}\n\n")
     if note:
-        f.write(f"> 📅 {note}\n\n")
+        for ln in note.split("\n"):
+            if ln.strip():
+                f.write(f"> {ln}\n")
+        f.write("\n")
     if skipped:
         f.write("（已略過 --skip-longterm；要看長期軌請跑 `python -m scripts.run_longterm`）\n")
     elif df is None or df.empty:
         f.write("（今日無符合條件標的）\n")
     else:
         keep = [c for c in cols if c in df.columns]
-        disp = df[keep].head(n).rename(columns=report_html.COLUMN_LABELS)
+        disp = df[keep].head(n).copy()
+        # 今日+10日 合併同格（MD 用「今／10日」斜線併排），今日欄併入後移除
+        merged_labels = {}
+        for anchor, today_col in report_html.MERGE_PAIRS.items():
+            if anchor in disp.columns and today_col in disp.columns:
+                disp[anchor] = [report_html.fmt_pair_text(t, d)
+                                for t, d in zip(disp[today_col], disp[anchor])]
+                merged_labels[anchor] = report_html.MERGE_BASE[anchor] + "今/10日"
+        drop = [t for a, t in report_html.MERGE_PAIRS.items()
+                if a in disp.columns and t in disp.columns]
+        disp = disp.drop(columns=drop).rename(
+            columns={**report_html.COLUMN_LABELS, **merged_labels})
         f.write(disp.to_markdown(index=False) + "\n")
         if len(df) > n:
             f.write(f"\n> 📄 僅顯示前 {n} 名，共 {len(df)} 檔符合；"
@@ -262,6 +274,8 @@ def main():
 
     if not args.no_update:
         _update(args.days)
+    from src.db import clear_cache
+    clear_cache()   # 更新完清整表快取，確保各 screener 讀到最新資料（之後同進程只讀一次）
 
     print("[環境] 多空紅綠燈 + 全球市場 …")
     reg = regime_mod.assess()
@@ -364,17 +378,21 @@ def main():
             d["產業"] = d["stock_id"].map(_ind)
 
     # 資料日期說明（避免區間值/基準日收盤被誤讀成單日/最新日）
-    _flownote = ("　外資今日/投信今日/自營今日＝今日單日買賣超(張，正=買超，對得起券商App今日數)；"
-                 "融資今日/融券今日＝今日單日融資／融券餘額增減(張，正=增加)；"
-                 "外資10日/投信10日/自營10日＝近10日累積淨買賣超(張，看趨勢)；"
-                 "融資增減10日／融券增減10日＝近10日融資／融券餘額變化(張)；"
-                 "外資連/投信連/自營連＝當前連續同向天數(正=連買、負=連賣，看誰在狂買/狂賣)；"
-                 "主導度%＝今日三大法人淨額÷今日成交量(法人是否主導此檔)；"
-                 "籌碼訊號＝今日共識／今昨背離／連買連賣強度的一句話合成。")
-    note11 = (_asof_note(df11, "t11") or "") + _flownote
-    note16 = (_asof_note(df16, "t16") or "") + _flownote
-    notedt = ((_asof_note(dfdt, "daytrade") or "") + "。" + report_html.DAYTRADE_NOTE
-              + " " + report_html.BIAS_NOTE + _flownote)
+    # 分組多行說明（\n 分隔；MD 逐行加 >、HTML 換 <br>，避免擠成一長段）
+    _flownote = (
+        "📊 法人/資券欄｜每格兩個數＝今日單日／近10日累積(HTML 上下兩行、MD 以／分隔)；"
+        "外資·投信·自營＝買賣超(🔴買超/🟢賣超)，融資·融券＝餘額增減(🔴增/🟢減)"
+        "\n　↳ 融資增＝散戶借錢追價⚠️籌碼較不安定；融券增＝空單多·股價若強有軋空機會(未來須回補)——顏色只表增減，好壞配股價方向看"
+        "\n🔁 連續｜外資連·投信連·自營連＝當前連續同向天數(正=連買／負=連賣，看誰在狂買狂賣)"
+        "\n🎯 主導度%＝今日法人淨額÷成交量(法人是否主導)；💬 籌碼訊號＝今日共識／連買連賣強度一句話合成"
+    )
+    def _dated(asof, base):  # 有資料日期才加「📅 …」首行，避免空日期留下光禿的一行
+        return (f"📅 {asof}\n" if asof else "") + base
+    note11 = _dated(_asof_note(df11, "t11"), _flownote)
+    note16 = _dated(_asof_note(df16, "t16"), _flownote)
+    _dt_asof = _asof_note(dfdt, "daytrade")
+    notedt = ("📅 " + (f"{_dt_asof}。" if _dt_asof else "") + report_html.DAYTRADE_NOTE
+              + " " + report_html.BIAS_NOTE + "\n" + _flownote)
 
     OUTPUT_DIR.mkdir(parents=True, exist_ok=True)
     today = date.today().isoformat()
