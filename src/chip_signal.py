@@ -20,7 +20,7 @@ import pandas as pd
 from .db import read_table
 
 _COLS = ["stock_id", "外資連", "投信連", "自營連", "主導度%",
-         "量能倍數", "券資比%", "融資佔量%", "融券佔量%", "籌碼訊號"]
+         "今日量張", "量能倍數", "券資比%", "融資佔量%", "融券佔量%", "籌碼訊號"]
 _STREAK_STRONG = 5   # 連買/連賣 ≥ 幾天算「狂買/狂賣」，才進訊號標籤
 
 
@@ -100,10 +100,15 @@ def compute(streak_days: int = 30, flow_days: int = 10) -> pd.DataFrame:
     vol20 = (px[px["date"].isin(pdates[-20:])].groupby("stock_id")["volume"].mean()
              if pdates else pd.Series(dtype=float))
 
+    def _vt(sid):  # 今日成交量(張)絕對值，供搭配量能倍數／佔量%判讀
+        v = vol_today.get(sid)
+        return int(v) if v is not None and pd.notna(v) else None
+
     def _volr(sid):
         vt, va = vol_today.get(sid), vol20.get(sid)
         return round(vt / va, 2) if (va and va > 0 and vt is not None) else None
 
+    out["今日量張"] = out["stock_id"].map(_vt)
     out["量能倍數"] = out["stock_id"].map(_volr)
 
     # 券資比%＝融券餘額÷融資餘額；融資／融券佔量%＝今日增減(今−昨餘額)÷今日量
