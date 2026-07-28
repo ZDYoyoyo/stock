@@ -40,6 +40,9 @@ def main():
                     help="增量：讀現有面板，補『新股』＋『每檔缺的新日子』（現有股仍打 API 補到最新）")
     ap.add_argument("--only-new", action="store_true",
                     help="只抓面板裡沒有的『新股』，現有股原封保留、完全不碰 API（純加檔數最省）")
+    ap.add_argument("--max-new", type=int, default=190,
+                    help="本次最多抓幾檔『新股』（防燒爆 FinMind 額度；每檔3呼叫、600/時→上限~190）。"
+                         "可續傳：下次再跑會接著抓剩下的")
     args = ap.parse_args()
 
     out_path = Path(args.out)
@@ -60,6 +63,14 @@ def main():
             targets.setdefault(sid, mkt.get(sid, "twse"))
     else:
         targets = dict(picked)
+
+    # 額度保護：本次最多抓 max_new 檔『新股』（依流動性高者優先），其餘下次 --only-new 續傳
+    if args.max_new:
+        new_sids = [s for s in targets if s not in last_by_sid]
+        if len(new_sids) > args.max_new:
+            drop = set(new_sids[args.max_new:])
+            targets = {s: m for s, m in targets.items() if s not in drop}
+            print(f"（本次限 {args.max_new} 檔新股，剩 {len(drop)} 檔下次續傳）")
 
     mode = "只加新股" if args.only_new else ("增量更新" if args.update else "全新回補")
     print(f"{mode}：要抓 {len(targets)} 檔 → {args.out}")
