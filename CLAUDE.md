@@ -75,31 +75,37 @@ python -m scripts.sync_data load               # 由 CSV 重建 stock.db
   `compute_regime_ok`、`slice_panel`、`load_panel_csv`（離線面板）。
 - `scripts/run_portfolio_backtest.py` — 執行；`--compare` 四組風控對照；`--offline` 用離線面板秒跑。
 - `scripts/run_oos_validation.py` — 樣本外分期＋參數敏感度。
-- `scripts/backfill_history.py` — 回補長歷史→`data/history/backtest_panel.csv.gz`（gzip、寫一次不動，不拖累日常 commit）。
+- `scripts/run_signal_compare.py` — 離線比 T11／T16／買入持有／各+regime（`compute_t16_entries` 抗跌強勢）。
+- `scripts/run_t16_tune.py` — T16 調校：持股數×停損×regime 降回撤。
+- `scripts/backfill_history.py` — 回補離線面板→`data/history/backtest_panel.csv.gz`。
+  `--update`(補新日子)、`--only-new`(只加新股、舊股零API)、`--max-new`(額度保護，600/時→190/次)。
 - `tests/` — 34 個單元測試（signals／portfolio／db 快取）；`python -m pytest tests/ -q`。
-- 報告：`reports/portfolio_backtest.md`、`reports/oos_validation.md`、`reports/backtest_validation.md`。
+- 報告：`reports/signal_compare.md`、`reports/t16_tune.md`、`reports/portfolio_backtest.md`、`reports/oos_validation.md`。
 
 **指令**：
 ```bash
-python -m scripts.backfill_history --universe 150 --start 2022-01-01   # 回補離線面板（一次性）
-python -m scripts.run_portfolio_backtest --offline --compare           # 離線秒跑＋四組風控對照
-python -m scripts.run_oos_validation --universe 15 --start 2022-01-01  # 樣本外＋敏感度
+python -m scripts.run_signal_compare      # 離線比訊號（不碰額度、秒出）
+python -m scripts.run_t16_tune            # T16 降回撤調校
+python -m scripts.backfill_history --update           # 補回測面板新日子
+python -m scripts.backfill_history --universe 300 --only-new   # 加檔數（只抓新股）
 ```
 
-**關鍵結論（事件研究／組合回測／風控對照／樣本外 四法交叉驗證）**：
-T11 當**機械化進出場策略沒有 edge**——大 universe 下勉強微正（CAGR ~+3%），但遠遜於買入持有
-（同期 +105%）、背 ~−37% 回撤，停損／ATR／regime／任何參數都救不了。
-→ **T11 適合當選股情報，不是被驗證過的交易策略。** 未來要找「真能贏大盤的訊號」就用這套框架量化比。
+**關鍵結論（離線 200 檔面板實測，2026-07）**：
+- **T11 法人吸貨＝沒 edge**（CAGR −16%、回撤 −63%）→ 只當選股情報，別當進出場策略。
+- **T16 抗跌強勢＝真有 edge**（動能）：10 檔無停損 CAGR **+32%**、夏普 **0.99**、回撤 −37%。
+  ⚠️ **停損反而傷 T16**（把動能股在低點洗出場）；降回撤靠「多持到 ~10 檔分散」，不是停損。
+- **regime（市場廣度紅綠燈）普遍有用**：買入持有+regime 回撤 −33%→−18.6%、夏普升。
+- **實用結論**：波段用 **T16+分散+順 regime**（攻）；長期用 **買入持有+regime**（守）；T11 丟。
+- **T12 月營收動能 / 長期價值 選股尚未回測**——面板無基本面（配息/PER/ROE/營收）歷史，要測得先回補。
 
 **已知限制／可延伸**：
-- 離線面板目前 60 檔、仍有倖存者偏誤（FinMind 免費層拿不到已下市股）。要更大 universe：
-  重跑 `backfill_history --universe N`；要完全消除倖存者偏誤需 TWSE 舊版逐日端點（未做）。
-- P4 的「明顯負」是小樣本（12–15 檔）高估；以 P5 大樣本「微正但遠遜大盤」為準。
+- 離線面板 ~200 檔、仍有倖存者偏誤（動能策略尤其樂觀，實際 edge 會小些）。
+- 未計滑價；in-sample（T16 尚未做嚴格樣本外，可用 run_oos 概念延伸）。
 
 ## 之後要改回測這塊，怎麼跟我說（給使用者）
 
-- **直接點名功能**：「回測停損改 −10%」「universe 加到 200 重跑」「用這框架比 T16 vs 買入持有」。
-- **或指報告**：「portfolio_backtest.md 的 ATR 那組再試 3×」。
+- **直接點名功能**：「T16 試 10 檔+regime」「universe 加到 300」「回補基本面測 T12」。
+- **或指報告**：「t16_tune.md 再試 8 檔」。
 - 一律**先同步再動工**；我照 git log 認進度（commit 訊息很詳細）。
 
 ## 使用者偏好（做事時遵守）
