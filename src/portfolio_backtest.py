@@ -244,6 +244,31 @@ def slice_panel(panel: dict, lo: str = None, hi: str = None) -> dict:
     return out
 
 
+def compute_t16_entries(panel: dict, lookback: int = 10, min_ret: float = 0.0,
+                        max_ret: float = 0.30) -> dict:
+    """T16 抗跌強勢 point-in-time：近 lookback 日報酬 − 當日全市場中位數 = 相對強弱(RS)。
+
+    回傳 {date: [(stock_id, RS)]}；只收 min_ret<=報酬<=max_ret（抗跌但不過度延伸），score=RS。
+    """
+    import statistics
+    closes = {sid: df.sort_values("date")["close"].tolist() for sid, df in panel.items()}
+    dates = {sid: df.sort_values("date")["date"].tolist() for sid, df in panel.items()}
+    ret_by_date: dict[str, list] = {}
+    for sid, c in closes.items():
+        dl = dates[sid]
+        for i in range(lookback, len(c)):
+            past = c[i - lookback]
+            if past > 0:
+                ret_by_date.setdefault(dl[i], []).append((sid, c[i] / past - 1))
+    out: dict[str, list] = {}
+    for d, lst in ret_by_date.items():
+        med = statistics.median(r for _, r in lst)
+        for sid, r in lst:
+            if min_ret <= r <= max_ret:
+                out.setdefault(d, []).append((sid, r - med))
+    return out
+
+
 def compute_regime_ok(panel: dict, threshold: float = 45.0, ma: int = 20) -> dict:
     """擇時濾網：回傳 {date: bool}，當日 universe 站上 MA{ma} 比例 >= threshold% 才可開新倉。
 

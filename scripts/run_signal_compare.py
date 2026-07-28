@@ -15,7 +15,8 @@ sys.path.insert(0, str(ROOT))
 import pandas as pd
 
 from src.portfolio_backtest import (
-    _metrics, compute_regime_ok, compute_t11_entries, load_panel_csv, run_portfolio,
+    _metrics, compute_regime_ok, compute_t11_entries, compute_t16_entries,
+    load_panel_csv, run_portfolio,
 )
 from src.signals import T11Params
 from src.config import T11 as T11CFG
@@ -65,20 +66,29 @@ def main():
     n_days = len({d for df in panel.values() for d in df["date"]})
     print(f"離線面板 {len(panel)} 檔、{n_days} 交易日")
 
+    reg = compute_regime_ok(panel, threshold=args.regime_th)
+
     # 1) T11（真正的 T11，含融資）
     t11 = run_portfolio(panel, compute_t11_entries(panel, T11Params.from_config(T11CFG)),
                         max_positions=args.max_pos, hold_days=args.hold)
+
+    # 1b) T16 抗跌強勢 + T16+regime
+    t16_entries = compute_t16_entries(panel)
+    t16 = run_portfolio(panel, t16_entries, max_positions=args.max_pos, hold_days=args.hold)
+    t16r = run_portfolio(panel, t16_entries, max_positions=args.max_pos, hold_days=args.hold,
+                         regime_ok=reg)
 
     # 2) 買入持有（等權全 universe）
     idx = _ew_index(panel)
     bh = _metrics(idx, [], days_with_pos=len(idx), n_days=len(idx))
 
     # 3) 買入持有 + regime 擇時
-    reg = compute_regime_ok(panel, threshold=args.regime_th)
     timed_eq, inv_days = _regime_timed(idx, reg)
     bhr = _metrics(timed_eq, [], days_with_pos=inv_days, n_days=len(timed_eq))
 
     rows = [("T11 法人吸貨（持5檔/20日）", t11.metrics),
+            ("T16 抗跌強勢（持5檔/20日）", t16.metrics),
+            (f"T16 + regime≥{args.regime_th:.0f}%", t16r.metrics),
             ("買入持有（等權全部）", bh),
             (f"買入持有 + regime≥{args.regime_th:.0f}%", bhr)]
 
