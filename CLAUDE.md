@@ -64,6 +64,44 @@ python -m scripts.sync_data load               # 由 CSV 重建 stock.db
 - `src/screeners/` — 各軌篩選器 + `landmine`(地雷偵測)。
 - `src/twse_client.py` / `src/tpex_client.py` — 官方資料 client（上市／上櫃）。
 
+## 回測框架（P1–P6，2026-07 量化顧問專案已建）
+
+把「每日選股系統」補上**可驗證的回測**。核心：`src/signals.py`（回測與實際**共用**的訊號原語）
+＋`src/portfolio_backtest.py`（組合層級回測，產真實 CAGR／最大回撤／夏普）。
+
+**關鍵檔**：
+- `src/signals.py` — 交易成本、法人連買天數、T11 point-in-time 判斷 `t11_pass`（回測＝實際同一份）。
+- `src/portfolio_backtest.py` — 引擎：`compute_t11_entries`、`run_portfolio`（含停損/regime）、
+  `compute_regime_ok`、`slice_panel`、`load_panel_csv`（離線面板）。
+- `scripts/run_portfolio_backtest.py` — 執行；`--compare` 四組風控對照；`--offline` 用離線面板秒跑。
+- `scripts/run_oos_validation.py` — 樣本外分期＋參數敏感度。
+- `scripts/backfill_history.py` — 回補長歷史→`data/history/backtest_panel.csv.gz`（gzip、寫一次不動，不拖累日常 commit）。
+- `tests/` — 34 個單元測試（signals／portfolio／db 快取）；`python -m pytest tests/ -q`。
+- 報告：`reports/portfolio_backtest.md`、`reports/oos_validation.md`、`reports/backtest_validation.md`。
+
+**指令**：
+```bash
+python -m scripts.backfill_history --universe 150 --start 2022-01-01   # 回補離線面板（一次性）
+python -m scripts.run_portfolio_backtest --offline --compare           # 離線秒跑＋四組風控對照
+python -m scripts.run_oos_validation --universe 15 --start 2022-01-01  # 樣本外＋敏感度
+```
+
+**關鍵結論（事件研究／組合回測／風控對照／樣本外 四法交叉驗證）**：
+T11 當**機械化進出場策略沒有 edge**——大 universe 下勉強微正（CAGR ~+3%），但遠遜於買入持有
+（同期 +105%）、背 ~−37% 回撤，停損／ATR／regime／任何參數都救不了。
+→ **T11 適合當選股情報，不是被驗證過的交易策略。** 未來要找「真能贏大盤的訊號」就用這套框架量化比。
+
+**已知限制／可延伸**：
+- 離線面板目前 60 檔、仍有倖存者偏誤（FinMind 免費層拿不到已下市股）。要更大 universe：
+  重跑 `backfill_history --universe N`；要完全消除倖存者偏誤需 TWSE 舊版逐日端點（未做）。
+- P4 的「明顯負」是小樣本（12–15 檔）高估；以 P5 大樣本「微正但遠遜大盤」為準。
+
+## 之後要改回測這塊，怎麼跟我說（給使用者）
+
+- **直接點名功能**：「回測停損改 −10%」「universe 加到 200 重跑」「用這框架比 T16 vs 買入持有」。
+- **或指報告**：「portfolio_backtest.md 的 ATR 那組再試 3×」。
+- 一律**先同步再動工**；我照 git log 認進度（commit 訊息很詳細）。
+
 ## 使用者偏好（做事時遵守）
 
 - **回覆用繁體中文**；程式碼／指令用英文。
