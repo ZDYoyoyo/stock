@@ -81,7 +81,7 @@ def main():
                          regime_ok=reg)
 
     # 1c) T12 月營收動能 + T12+regime（月營收面板存在才跑）
-    t12 = t12r = None
+    t12 = t12r = t12_8 = None
     rev_path = Path(args.revenue)
     if rev_path.exists():
         rev = load_revenue_panel(rev_path)
@@ -90,6 +90,8 @@ def main():
         n_sig = sum(len(v) for v in t12_entries.values())
         print(f"T12 月營收面板 {len(rev)} 檔（面板中 {n_cov} 檔對得上）｜訊號 {n_sig} 筆")
         t12 = run_portfolio(panel, t12_entries, max_positions=args.max_pos, hold_days=args.hold)
+        # T12 甜蜜點：持 8 檔分散降回撤（實測 −42.7%→−38.2%、夏普升、CAGR 不減）
+        t12_8 = run_portfolio(panel, t12_entries, max_positions=8, hold_days=args.hold)
         t12r = run_portfolio(panel, t12_entries, max_positions=args.max_pos, hold_days=args.hold,
                              regime_ok=reg)
     else:
@@ -107,7 +109,8 @@ def main():
             ("T16 抗跌強勢（持5檔/20日）", t16.metrics),
             (f"T16 + regime≥{args.regime_th:.0f}%", t16r.metrics)]
     if t12 is not None:
-        rows += [("T12 月營收動能（持5檔/20日）", t12.metrics),
+        rows += [(f"T12 月營收動能（持{args.max_pos}檔/{args.hold}日）", t12.metrics),
+                 ("T12 持8檔（分散降回撤，甜蜜點）", t12_8.metrics),
                  (f"T12 + regime≥{args.regime_th:.0f}%", t12r.metrics)]
     rows += [("買入持有（等權全部）", bh),
              (f"買入持有 + regime≥{args.regime_th:.0f}%", bhr)]
@@ -134,6 +137,8 @@ def main():
     if t12 is not None:
         lines.append("- **T12 月營收動能**：用『公布日』對齊（pub_date≤交易日才可見）→ 無前視偏誤。"
                      "CAGR/夏普若贏買入持有 → 營收成長是有效因子；若輸 T16 → 動能(價)比營收(基本面)反應更快。")
+        lines.append("- **T12 持8檔＝甜蜜點**：5→8 檔分散把回撤 −42.7%→−38.2%、夏普 0.82→0.91、CAGR 不減；"
+                     "8→10 檔則過度分散(CAGR 掉)。⚠️ regime 對 T12 每組都變差 → 別加。")
     lines.append(f"\n## 限制：{len(panel)} 檔仍有倖存者偏誤；未計滑價；等權買入持有未計再平衡成本。"
                  "T12 月營收公布日部分以次月10日(法定期限)保守估，實際多更早公布。")
     out = ROOT / "reports" / "signal_compare.md"
