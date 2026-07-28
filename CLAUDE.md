@@ -59,7 +59,8 @@ python -m scripts.sync_data load               # 由 CSV 重建 stock.db
 
 - `scripts/run_all.py` — 主流程：跑五軌、併欄、寫 `.md`/`.html`/各軌 `.csv`、推播。
 - `src/report_html.py` — HTML 輸出＋`COLUMN_LABELS`（英文欄名→中文顯示名）＋`rename_cn`。
-- `src/chip_signal.py` — 籌碼訊號：連買賣天數、法人主導度%、訊號標籤。
+- `src/chip_signal.py` — 籌碼訊號：連買賣天數、法人主導度%、訊號標籤、量能倍數、券資比%、
+  資券佔量%（把資券絕對張數相對化，避免「融券−343」被誤判大小）。
 - `src/flows.py` — 法人近10日流向、資券增減併欄。
 - `src/screeners/` — 各軌篩選器 + `landmine`(地雷偵測)。
 - `src/twse_client.py` / `src/tpex_client.py` — 官方資料 client（上市／上櫃）。
