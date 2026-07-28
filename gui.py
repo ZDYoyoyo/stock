@@ -84,6 +84,17 @@ class Console:
         self._btn(p, "🔄 更新資料", lambda: self.run(["scripts.update_data", "--days", "40"], "更新資料"))
         self._btn(p, "🏦 更新千張大戶", lambda: self.run(["scripts.update_holders"], "更新千張大戶"))
 
+        self._section(p, "回測資料")
+        rowu = tk.Frame(p)
+        rowu.pack(fill="x", pady=1)
+        tk.Label(rowu, text="檔數", font=FONT, width=4, anchor="w").pack(side="left")
+        self.univ_entry = tk.Entry(rowu, font=FONT, width=6)
+        self.univ_entry.insert(0, "150")
+        self.univ_entry.pack(side="left")
+        tk.Label(rowu, text="流動性前N檔", font=("Microsoft JhengHei", 7), fg="#999").pack(side="left", padx=(3, 0))
+        self._btn(p, "🔄 補回測新日子", lambda: self.run(["scripts.backfill_history", "--update"], "補回測新日子"), "#eef4ff")
+        self._btn(p, "➕ 加回測檔數(只抓新股)", self.backfill_grow, "#eef4ff")
+
         self._section(p, "單軌 / 研究")
         self._btn(p, "🚀 月營收動能T12", lambda: self.run(["scripts.run_t12"], "月營收動能"), "#e8fbef")
         self._btn(p, "🏦 主力籌碼排行", lambda: self.run(["scripts.run_mainforce"], "主力籌碼"), "#eef4ff")
@@ -254,6 +265,14 @@ class Console:
             self.log("目前沒有執行中的工作。\n")
 
     # ---- 執行子程序 ----
+    def backfill_grow(self):
+        """加回測檔數：只抓面板裡沒有的新股（現有股不碰 API）。數字取自「檔數」欄。"""
+        n = (self.univ_entry.get() or "").strip()
+        if not n.isdigit() or int(n) < 1:
+            self.log("⚠️ 請在「檔數」欄填正整數（例如 300），再按此鍵。\n")
+            return
+        self.run(["scripts.backfill_history", "--universe", n, "--only-new"], f"加回測檔數→前{n}")
+
     def run(self, args, name):
         if self.proc and self.proc.poll() is None:
             self.log("⚠️ 有工作正在執行，請等它結束或按「停止」。\n")

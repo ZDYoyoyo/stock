@@ -37,27 +37,32 @@ def main():
     ap.add_argument("--start", default="2022-01-01")
     ap.add_argument("--out", default=str(PANEL_PATH))
     ap.add_argument("--update", action="store_true",
-                    help="增量：讀現有面板，只補『新股』與『每檔缺的新日子』，不重抓已有的")
+                    help="增量：讀現有面板，補『新股』＋『每檔缺的新日子』（現有股仍打 API 補到最新）")
+    ap.add_argument("--only-new", action="store_true",
+                    help="只抓面板裡沒有的『新股』，現有股原封保留、完全不碰 API（純加檔數最省）")
     args = ap.parse_args()
 
     out_path = Path(args.out)
     old = None
     last_by_sid = {}
-    if args.update and out_path.exists():
+    if (args.update or args.only_new) and out_path.exists():
         old = pd.read_csv(out_path, dtype={"stock_id": str})
         last_by_sid = old.groupby("stock_id")["date"].max().to_dict()
-        print(f"增量模式：現有 {old['stock_id'].nunique()} 檔、{len(old):,} 列，"
-              f"最新日 {old['date'].max()}")
+        print(f"現有面板 {old['stock_id'].nunique()} 檔、{len(old):,} 列，最新日 {old['date'].max()}")
 
-    # universe = 流動性前 N ∪ 現有面板已有的股（增量時不丟舊股）
     mkt = _market_map()
-    targets = dict(_pick_universe(args.universe))            # sid -> market
-    if old is not None:
+    picked = dict(_pick_universe(args.universe))             # sid -> market
+    if args.only_new and old is not None:
+        targets = {s: m for s, m in picked.items() if s not in last_by_sid}  # 只留新股
+    elif old is not None:                                    # --update：現有股補日子＋加新股
+        targets = dict(picked)
         for sid in last_by_sid:
             targets.setdefault(sid, mkt.get(sid, "twse"))
+    else:
+        targets = dict(picked)
 
-    mode = "增量更新" if args.update else "全新回補"
-    print(f"{mode} {len(targets)} 檔 → {args.out}")
+    mode = "只加新股" if args.only_new else ("增量更新" if args.update else "全新回補")
+    print(f"{mode}：要抓 {len(targets)} 檔 → {args.out}")
     frames, ok, fail, skip = [], 0, 0, 0
     items = list(targets.items())
     for i, (sid, market) in enumerate(items, 1):
