@@ -15,13 +15,14 @@ sys.path.insert(0, str(ROOT))
 import pandas as pd
 
 from src.portfolio_backtest import (
-    _metrics, compute_regime_ok, compute_t11_entries, compute_t16_entries,
-    load_panel_csv, run_portfolio,
+    _metrics, compute_regime_ok, compute_t11_entries, compute_t12_entries,
+    compute_t16_entries, load_panel_csv, load_revenue_panel, run_portfolio,
 )
 from src.signals import T11Params
 from src.config import T11 as T11CFG
 
 PANEL = ROOT / "data" / "history" / "backtest_panel.csv.gz"
+REVENUE = ROOT / "data" / "history" / "revenue_panel.csv.gz"
 
 
 def _ew_index(panel: dict) -> pd.Series:
@@ -57,6 +58,7 @@ def _regime_timed(index_eq: pd.Series, reg_ok: dict):
 def main():
     ap = argparse.ArgumentParser()
     ap.add_argument("--panel", default=str(PANEL))
+    ap.add_argument("--revenue", default=str(REVENUE))
     ap.add_argument("--regime-th", type=float, default=45.0)
     ap.add_argument("--hold", type=int, default=20)
     ap.add_argument("--max-pos", type=int, default=5)
@@ -78,6 +80,21 @@ def main():
     t16r = run_portfolio(panel, t16_entries, max_positions=args.max_pos, hold_days=args.hold,
                          regime_ok=reg)
 
+    # 1c) T12 月營收動能 + T12+regime（月營收面板存在才跑）
+    t12 = t12r = None
+    rev_path = Path(args.revenue)
+    if rev_path.exists():
+        rev = load_revenue_panel(rev_path)
+        t12_entries = compute_t12_entries(panel, rev)
+        n_cov = sum(1 for s in panel if s in rev)
+        n_sig = sum(len(v) for v in t12_entries.values())
+        print(f"T12 月營收面板 {len(rev)} 檔（面板中 {n_cov} 檔對得上）｜訊號 {n_sig} 筆")
+        t12 = run_portfolio(panel, t12_entries, max_positions=args.max_pos, hold_days=args.hold)
+        t12r = run_portfolio(panel, t12_entries, max_positions=args.max_pos, hold_days=args.hold,
+                             regime_ok=reg)
+    else:
+        print(f"（無月營收面板 {rev_path}，略過 T12；先跑 python -m scripts.backfill_revenue）")
+
     # 2) 買入持有（等權全 universe）
     idx = _ew_index(panel)
     bh = _metrics(idx, [], days_with_pos=len(idx), n_days=len(idx))
@@ -88,9 +105,12 @@ def main():
 
     rows = [("T11 法人吸貨（持5檔/20日）", t11.metrics),
             ("T16 抗跌強勢（持5檔/20日）", t16.metrics),
-            (f"T16 + regime≥{args.regime_th:.0f}%", t16r.metrics),
-            ("買入持有（等權全部）", bh),
-            (f"買入持有 + regime≥{args.regime_th:.0f}%", bhr)]
+            (f"T16 + regime≥{args.regime_th:.0f}%", t16r.metrics)]
+    if t12 is not None:
+        rows += [("T12 月營收動能（持5檔/20日）", t12.metrics),
+                 (f"T12 + regime≥{args.regime_th:.0f}%", t12r.metrics)]
+    rows += [("買入持有（等權全部）", bh),
+             (f"買入持有 + regime≥{args.regime_th:.0f}%", bhr)]
 
     print("\n===== 訊號對照 =====")
     for name, m in rows:
@@ -110,8 +130,12 @@ def main():
                      f"{m['Sharpe']:.2f} | {m['Vol_%']:.1f}% | {m['exposure_%']:.0f}% |")
     lines += ["\n## 判讀",
               "- 夏普最高＝風險調整後最好。買入持有若夏普遠贏 T11 → 再次證明 T11 選股/擇時無加值。",
-              "- regime 版若『MaxDD 明顯變淺、夏普升、CAGR 沒差多少』→ 擇時濾網有價值。",
-              "\n## 限制：150 檔仍有倖存者偏誤；未計滑價；等權買入持有未計再平衡成本。"]
+              "- regime 版若『MaxDD 明顯變淺、夏普升、CAGR 沒差多少』→ 擇時濾網有價值。"]
+    if t12 is not None:
+        lines.append("- **T12 月營收動能**：用『公布日』對齊（pub_date≤交易日才可見）→ 無前視偏誤。"
+                     "CAGR/夏普若贏買入持有 → 營收成長是有效因子；若輸 T16 → 動能(價)比營收(基本面)反應更快。")
+    lines.append(f"\n## 限制：{len(panel)} 檔仍有倖存者偏誤；未計滑價；等權買入持有未計再平衡成本。"
+                 "T12 月營收公布日部分以次月10日(法定期限)保守估，實際多更早公布。")
     out = ROOT / "reports" / "signal_compare.md"
     out.write_text("\n".join(lines), encoding="utf-8")
     print(f"\n✅ 報告 → {out}")

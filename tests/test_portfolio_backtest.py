@@ -10,7 +10,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 import pandas as pd
 
 from src.portfolio_backtest import (
-    _metrics, compute_regime_ok, run_portfolio, slice_panel,
+    _metrics, compute_regime_ok, compute_t12_entries, run_portfolio, slice_panel,
 )
 
 
@@ -139,6 +139,50 @@ def test_slice_panel_bounds():
     got = sub["A"]["date"].tolist()
     assert got == dates[3:7]                             # 含邊界共 4 天
     assert slice_panel(panel, lo=dates[-1] + "9") == {}  # 全被切掉→空面板
+
+
+# --- T12 月營收動能 point-in-time ---
+def _rev(sid, rows):
+    """造月營收面板：rows=[(pub_date, ym, yoy, cum_yoy)]。"""
+    df = pd.DataFrame(rows, columns=["pub_date", "ym", "yoy", "cum_yoy"])
+    return {sid: df}
+
+
+def test_t12_no_lookahead():
+    """公布日(pub_date)之前的交易日，不得看到那筆營收 → 無前視偏誤。"""
+    panel, dates = _panel("A", [100.0] * 8, start="2024-01-01")
+    # 營收 6/2 公布卻在 1 月的交易日就選到 = 前視。pub_date 設在面板日期之後。
+    rev = _rev("A", [("2024-06-02", "2024-05", 50.0, 30.0)])
+    entries = compute_t12_entries(panel, rev)
+    assert all(d < "2024-06-02" for d in dates)     # 面板全在公布日之前
+    assert entries == {}                             # 尚未公布 → 完全無訊號
+
+def test_t12_signal_after_publish():
+    """公布日當天(含)起，門檻過關的營收才成為候選。"""
+    panel, dates = _panel("A", [100.0] * 8, start="2024-01-01")
+    pub = dates[3]                                   # 第4個交易日公布
+    rev = _rev("A", [(pub, "2023-12", 50.0, 30.0)])  # YoY50/累計30/加速20 → 過門檻
+    entries = compute_t12_entries(panel, rev)
+    assert all(d not in entries for d in dates[:3])  # 公布前無訊號
+    assert all(dates[i] in entries for i in range(3, 8))  # 公布後每日都在候選
+
+def test_t12_threshold_filters():
+    """YoY 低於門檻 / 加速度不足 → 不入選。"""
+    panel, dates = _panel("A", [100.0] * 6, start="2024-01-01")
+    pub = dates[0]
+    low_yoy = compute_t12_entries(panel, _rev("A", [(pub, "2023-12", 5.0, 3.0)]))
+    assert low_yoy == {}                             # YoY5 < MIN_YOY(30)
+    no_accel = compute_t12_entries(panel, _rev("A", [(pub, "2023-12", 40.0, 39.0)]))
+    assert no_accel == {}                            # 加速度1 < MIN_ACCEL(5)
+
+def test_t12_uses_latest_published():
+    """有多筆已公布時，取 pub_date 最新的一筆判斷（point-in-time 最新狀態）。"""
+    panel, dates = _panel("A", [100.0] * 8, start="2024-01-01")
+    rev = _rev("A", [(dates[0], "2023-11", 50.0, 30.0),   # 早期：過門檻
+                     (dates[4], "2023-12", 5.0, 3.0)])    # 較新：不過門檻 → 之後應失格
+    entries = compute_t12_entries(panel, rev)
+    assert dates[2] in entries                       # 只有舊營收時：入選
+    assert dates[5] not in entries                   # 新營收公布後轉不合格 → 退出候選
 
 
 if __name__ == "__main__":

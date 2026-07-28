@@ -71,15 +71,18 @@ python -m scripts.sync_data load               # 由 CSV 重建 stock.db
 
 **關鍵檔**：
 - `src/signals.py` — 交易成本、法人連買天數、T11 point-in-time 判斷 `t11_pass`（回測＝實際同一份）。
-- `src/portfolio_backtest.py` — 引擎：`compute_t11_entries`、`run_portfolio`（含停損/regime）、
-  `compute_regime_ok`、`slice_panel`、`load_panel_csv`（離線面板）。
+- `src/portfolio_backtest.py` — 引擎：`compute_t11_entries`、`compute_t16_entries`、
+  `compute_t12_entries`（月營收 point-in-time）、`run_portfolio`（含停損/regime）、
+  `compute_regime_ok`、`slice_panel`、`load_panel_csv`、`load_revenue_panel`（離線面板）。
 - `scripts/run_portfolio_backtest.py` — 執行；`--compare` 四組風控對照；`--offline` 用離線面板秒跑。
 - `scripts/run_oos_validation.py` — 樣本外分期＋參數敏感度。
 - `scripts/run_signal_compare.py` — 離線比 T11／T16／買入持有／各+regime（`compute_t16_entries` 抗跌強勢）。
 - `scripts/run_t16_tune.py` — T16 調校：持股數×停損×regime 降回撤。
 - `scripts/backfill_history.py` — 回補離線面板→`data/history/backtest_panel.csv.gz`。
   `--update`(補新日子)、`--only-new`(只加新股、舊股零API)、`--max-new`(額度保護，600/時→190/次)。
-- `tests/` — 34 個單元測試（signals／portfolio／db 快取）；`python -m pytest tests/ -q`。
+- `scripts/backfill_revenue.py` — 回補月營收面板→`data/history/revenue_panel.csv.gz`（供 T12）。
+  每檔1次 FinMind call，對齊股價面板；YoY/累計YoY 自算，公布日用 create_time(或次月10日 fallback)。
+- `tests/` — 38 個單元測試（signals／portfolio／T12 前視偏誤／db 快取）；`python -m pytest tests/ -q`。
 - 報告：`reports/signal_compare.md`、`reports/t16_tune.md`、`reports/portfolio_backtest.md`、`reports/oos_validation.md`。
 
 **指令**：
@@ -88,6 +91,8 @@ python -m scripts.run_signal_compare      # 離線比訊號（不碰額度、秒
 python -m scripts.run_t16_tune            # T16 降回撤調校
 python -m scripts.backfill_history --update           # 補回測面板新日子
 python -m scripts.backfill_history --universe 300 --only-new   # 加檔數（只抓新股）
+python -m scripts.backfill_revenue                    # 回補月營收面板（對齊股價面板，供 T12）
+python -m scripts.backfill_revenue --update           # 增量：只補面板新股的月營收
 ```
 
 **關鍵結論（離線 200 檔面板實測，2026-07）**：
@@ -95,8 +100,13 @@ python -m scripts.backfill_history --universe 300 --only-new   # 加檔數（只
 - **T16 抗跌強勢＝真有 edge**（動能）：10 檔無停損 CAGR **+32%**、夏普 **0.99**、回撤 −37%。
   ⚠️ **停損反而傷 T16**（把動能股在低點洗出場）；降回撤靠「多持到 ~10 檔分散」，不是停損。
 - **regime（市場廣度紅綠燈）普遍有用**：買入持有+regime 回撤 −33%→−18.6%、夏普升。
-- **實用結論**：波段用 **T16+分散+順 regime**（攻）；長期用 **買入持有+regime**（守）；T11 丟。
-- **T12 月營收動能 / 長期價值 選股尚未回測**——面板無基本面（配息/PER/ROE/營收）歷史，要測得先回補。
+- **T12 月營收動能＝有 edge 但不如 T16**（199 檔月營收面板實測）：持5檔/20日 CAGR **+21.5%**、
+  夏普 **0.82**、回撤 −42.7%。贏買入持有(+14.9%/0.71)→ 營收成長是有效因子；但輸 T16(+31.4%/0.90)
+  → 價的動能比基本面反應更快。⚠️ **regime 對 T12 幫助不明顯**（甚至加深回撤 −42.7%→−48.1%）。
+  用公布日(pub_date≤交易日)對齊 → 無前視偏誤。
+- **實用結論**：波段用 **T16+分散+順 regime**（攻）；長期用 **買入持有+regime**（守）；
+  T12 可當「有基本面撐腰的動能」次選（弱於 T16、別加 regime）；T11 丟。
+- **長期價值 選股尚未回測**——面板無 PER/ROE/配息歷史，要測得先回補那些基本面。
 
 **已知限制／可延伸**：
 - 離線面板 ~200 檔、仍有倖存者偏誤（動能策略尤其樂觀，實際 edge 會小些）。

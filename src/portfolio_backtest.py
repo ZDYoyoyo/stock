@@ -269,6 +269,67 @@ def compute_t16_entries(panel: dict, lookback: int = 10, min_ret: float = 0.0,
     return out
 
 
+def load_revenue_panel(path) -> dict:
+    """讀月營收面板（backfill_revenue 產出的 csv.gz）→ {sid: df[pub_date, ym, yoy, cum_yoy]}。
+
+    pub_date＝該月營收的『實際公布日』（FinMind create_time，或次月10日 fallback）；
+    compute_t12_entries 只採 pub_date<=交易日 的資料 → 天然避開前視偏誤。
+    """
+    df = pd.read_csv(path, dtype={"stock_id": str})
+    return {sid: g.sort_values("pub_date").reset_index(drop=True)
+            for sid, g in df.groupby("stock_id")}
+
+
+def compute_t12_entries(panel: dict, rev_panel: dict, *,
+                        min_yoy=None, max_yoy=None, min_cum=None, max_cum=None,
+                        min_accel=None) -> dict:
+    """T12 月營收動能 point-in-time：每個交易日取『當時已公布』(pub_date<=d)的最新月營收，
+    YoY / 累計YoY / 加速度(=YoY−累計YoY) 過關即為進場候選。
+
+    - 用公布日 pub_date 對齊 → 回測那天只看得到當時真的已公布的營收，無前視偏誤。
+    - 門檻預設沿用 live 的 config.T12（回測＝實際同一套）；可覆寫做敏感度分析。
+    - score = min(YoY,150) + min(累計YoY,100)×0.5 + min(加速度,100)，同 live 評分精神。
+    回傳 {date: [(stock_id, score)]}。
+    """
+    from .config import T12
+    min_yoy = T12.MIN_YOY if min_yoy is None else min_yoy
+    max_yoy = T12.MAX_YOY if max_yoy is None else max_yoy
+    min_cum = T12.MIN_CUM_YOY if min_cum is None else min_cum
+    max_cum = T12.MAX_CUM_YOY if max_cum is None else max_cum
+    min_accel = T12.MIN_ACCEL if min_accel is None else min_accel
+
+    out: dict[str, list] = {}
+    for sid, df in panel.items():
+        rev = rev_panel.get(sid)
+        if rev is None or rev.empty:
+            continue
+        pubs = rev["pub_date"].tolist()
+        yoys = rev["yoy"].tolist()
+        cums = rev["cum_yoy"].tolist()
+        n = len(pubs)
+        dates = df.sort_values("date")["date"].tolist()
+        k = 0                                    # 指到 pub_date<=d 的最新一筆（雙指標，各自升序）
+        for d in dates:
+            while k < n and pubs[k] <= d:
+                k += 1
+            idx = k - 1
+            if idx < 0:
+                continue
+            yoy, cum = yoys[idx], cums[idx]
+            if yoy is None or cum is None or pd.isna(yoy) or pd.isna(cum):
+                continue
+            if not (min_yoy <= yoy <= max_yoy):
+                continue
+            if not (min_cum <= cum <= max_cum):
+                continue
+            accel = yoy - cum
+            if accel < min_accel:
+                continue
+            score = min(yoy, 150) + min(cum, 100) * 0.5 + min(accel, 100)
+            out.setdefault(d, []).append((sid, score))
+    return out
+
+
 def compute_regime_ok(panel: dict, threshold: float = 45.0, ma: int = 20) -> dict:
     """擇時濾網：回傳 {date: bool}，當日 universe 站上 MA{ma} 比例 >= threshold% 才可開新倉。
 
