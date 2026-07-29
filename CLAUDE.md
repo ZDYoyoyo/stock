@@ -68,7 +68,8 @@ python -m scripts.sync_data load               # 由 CSV 重建 stock.db
 - `src/tech_signal.py` — 技術面併欄：均線排列(5/10/20多空)、季線年線(60/240MA中長多空)、
   20MA乖離%、52週位置%(近1年區間位置)、成交額億(資金權重)。需長歷史→靠滾動窗每日DB。
 - `src/screeners/` — 各軌篩選器 + `landmine`(地雷偵測)。
-- `src/twse_client.py` / `src/tpex_client.py` — 官方資料 client（上市／上櫃）。
+- `src/twse_client.py` / `src/tpex_client.py` — 官方資料 client（上市／上櫃）；含 `day_trade` 當沖統計。
+- `src/day_trade_signal.py` — 當沖比率% 併欄（妖股對殺偵測，TWSE+TPEX 官方當沖÷總量，免費）。
 
 ## 回測框架（P1–P6，2026-07 量化顧問專案已建）
 
@@ -143,8 +144,8 @@ python -m scripts.backfill_revenue --update           # 增量：只補面板新
 - **① 綜合定調（進行中→優先做）**：報告 30+ 欄要使用者自己心算。當沖軌已有「多空傾向」
   5因子投票，但**波段軌沒有**、且未吃新技術欄。做法：擴到波段軌＋納入季線年線/52週位置/
   券資比 → 每檔一句「🟢偏多/⚪觀望/🔴偏空」定調。「加判讀不加欄」，最有價值。
-- **② 資料受限籌碼欄（要寫新 client）**：當沖比率（妖股對殺偵測，TWSE免費有）、
-  借券賣出餘額（法人真實空單）、主力分點（要 FinMind Sponsor 付費）。
+- **② 資料受限籌碼欄**：✅當沖比率（妖股對殺，已做 day_trade_signal，5328~79%驗證）；
+  待做：借券賣出餘額（法人真實空單）、主力分點（要 FinMind Sponsor 付費）。
 - **③ 回測驗證缺口**：長期價值軌未回測（缺 PER/ROE/配息歷史，要先回補）、T16 嚴格樣本外。
 
 ## 提醒使用者的常見事項

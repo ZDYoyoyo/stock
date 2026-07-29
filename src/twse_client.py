@@ -141,6 +141,28 @@ def institutional(date: str) -> list[dict]:
     return out
 
 
+def day_trade(date: str) -> dict:
+    """回傳 {stock_id: 當沖成交張數}（當日沖銷交易統計，免費）。妖股對殺偵測用。假日回空。
+
+    端點 exchangeReport/TWTB4U（非 rwd 路徑）：table[0]=市場合計、table[1]=個股明細。
+    """
+    try:
+        r = requests.get("https://www.twse.com.tw/exchangeReport/TWTB4U",
+                         params={"response": "json", "date": date}, headers=_HEADERS, timeout=60)
+        d = r.json()
+    except (requests.RequestException, ValueError):
+        return {}
+    if d.get("stat") != "OK":
+        return {}
+    for t in d.get("tables", []):
+        fields = t.get("fields") or []
+        if "當日沖銷交易成交股數" in fields and "證券代號" in fields:
+            i_sid, i_vol = fields.index("證券代號"), fields.index("當日沖銷交易成交股數")
+            return {row[i_sid].strip(): int(_num(row[i_vol]) / 1000)
+                    for row in t.get("data", []) if _STOCK_RE.match(row[i_sid].strip())}
+    return {}
+
+
 def margin(date: str) -> list[dict]:
     """回傳 [{date,stock_id,margin_balance(張)}]。"""
     d = _get("marginTrading/MI_MARGN", {"date": date, "selectType": "ALL", "response": "json"})
