@@ -135,7 +135,7 @@ def add_bias(df: pd.DataFrame, reg=None) -> pd.DataFrame:
         if sid in ma20:
             v += 1 if r["close"] > ma20[sid] else -1
         votes.append(v)
-        tag = "🟢偏多" if v >= 2 else ("🔴偏空" if v <= -2 else "⚪中性")
+        tag = "🔴偏多" if v >= 2 else ("🟢偏空" if v <= -2 else "⚪中性")
         tags.append(tag)
         # 與大盤順逆：候選方向與大盤方向同號=順勢、反號=逆勢
         cdir = 1 if v >= 2 else (-1 if v <= -2 else 0)
