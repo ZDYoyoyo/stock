@@ -40,6 +40,14 @@ git log，不在對話裡。使用者只要說「繼續台股專案，先同步�
   檔案大小封頂、不壓縮(git delta友善)；260≥年線240，夠算季線/年線/52週位置%。
   一次性回補更多歷史：`python -m scripts.update_data --days 400`（免費端點、不燒token）。
 
+### ⚠️ 單位鐵律：DB 裡的 volume／法人／融資融券「已是張」，別再 /1000（老毛病）
+`twse_client.py` 抓進來時就已 `/1000` 換成**張**（`volume: int(_num(...)/1000)`、`foreign_net/
+trust_net/dealer_net/total_net`、`margin_balance/short_balance` 同理）。所以直接讀 DB 的
+`price.volume`、`institutional.*_net`、`margin.*_balance` **就是張數，report 時原樣輸出、不要再除 1000**。
+（曾多次把「106,771 張」誤植成「107 張」——差 1000 倍。）
+- 比率欄（主導度%、融資佔量%、券資比%、乖離% 等）分子分母同單位相消，**不受影響**；錯的只會是絕對張數。
+- 若真要股數，才 `張×1000`。TDCC 千張大戶欄本來就是 %，也不換算。
+
 ## 專案是什麼
 
 台股盤後選股系統。抓免費官方資料（TWSE/TPEX/FinMind），跑多軌篩選，輸出**單一整合日報**
