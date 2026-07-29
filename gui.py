@@ -9,12 +9,25 @@ import subprocess
 import sys
 import threading
 import tkinter as tk
+from datetime import datetime
 from pathlib import Path
 from tkinter import scrolledtext
 
 ROOT = Path(__file__).resolve().parent
 PY = sys.executable
 FONT = ("Microsoft JhengHei", 10)
+
+
+def _fmt_elapsed(td) -> str:
+    """timedelta → 中文經過時間（不足1分只顯示秒，避免 00時00分 佔版面）。"""
+    s = int(td.total_seconds())
+    h, rem = divmod(s, 3600)
+    m, sec = divmod(rem, 60)
+    if h:
+        return f"{h}時{m}分{sec}秒"
+    if m:
+        return f"{m}分{sec}秒"
+    return f"{sec}秒"
 
 
 class Console:
@@ -277,7 +290,8 @@ class Console:
         if self.proc and self.proc.poll() is None:
             self.log("⚠️ 有工作正在執行，請等它結束或按「停止」。\n")
             return
-        self.log(f"\n{'='*50}\n▶ {name}\n{'='*50}\n")
+        start = datetime.now()
+        self.log(f"\n{'='*50}\n▶ {name}\n🕐 開始時間：{start:%Y-%m-%d %H:%M:%S}\n{'='*50}\n")
         self.status.config(text=f"執行中：{name}", fg="#c0392b")
         env = os.environ.copy()
         env["PYTHONIOENCODING"] = "utf-8"
@@ -292,7 +306,10 @@ class Console:
                 for line in self.proc.stdout:
                     self.q.put(line)
                 self.proc.wait()
-                self.q.put(f"\n✔ 完成：{name}\n")
+                end = datetime.now()
+                self.q.put(f"\n✔ 完成：{name}\n"
+                           f"🕐 開始：{start:%H:%M:%S}　🏁 結束：{end:%H:%M:%S}　"
+                           f"⏱ 經過：{_fmt_elapsed(end - start)}\n")
             except Exception as e:
                 self.q.put(f"\n✖ 錯誤：{e}\n")
             self.q.put(("__done__", None))
