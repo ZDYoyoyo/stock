@@ -10,7 +10,8 @@ sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 import pandas as pd
 
 from src.portfolio_backtest import (
-    _metrics, compute_regime_ok, compute_t12_entries, run_portfolio, slice_panel,
+    _metrics, compute_longterm_entries, compute_regime_ok, compute_t12_entries,
+    run_portfolio, slice_panel,
 )
 
 
@@ -183,6 +184,45 @@ def test_t12_uses_latest_published():
     entries = compute_t12_entries(panel, rev)
     assert dates[2] in entries                       # 只有舊營收時：入選
     assert dates[5] not in entries                   # 新營收公布後轉不合格 → 退出候選
+
+
+# --- 長期價值 point-in-time ---
+def _valdf(rows):
+    """造估值面板：rows=[(date, sid, yield, per, pbr)]。"""
+    return pd.DataFrame(rows, columns=["date", "stock_id", "yield", "per", "pbr"])
+
+
+def test_longterm_screen_pass_and_fail():
+    """殖利率≥3/0<PER≤20/0<PBR≤3/ROE估≥5 全過才入選。"""
+    panel = {"A": None, "B": None, "C": None, "D": None}  # 只需 key 判斷在不在 universe
+    val = _valdf([
+        ("2024-01-02", "A", 5.0, 10.0, 1.5),    # 過：ROE估=15
+        ("2024-01-02", "B", 2.0, 10.0, 1.5),    # 殖利率<3 → 剔
+        ("2024-01-02", "C", 5.0, 25.0, 1.5),    # PER>20 → 剔
+        ("2024-01-02", "D", 5.0, 30.0, 1.0),    # ROE估=3.3<5 → 剔
+    ])
+    e = compute_longterm_entries(panel, val)
+    assert list(e.keys()) == ["2024-01-02"]
+    assert [sid for sid, _ in e["2024-01-02"]] == ["A"]
+
+
+def test_longterm_only_universe_stocks():
+    """不在 price panel(無OHLC)的股不列入。"""
+    panel = {"A": None}
+    val = _valdf([("2024-01-02", "A", 5.0, 10.0, 1.5),
+                  ("2024-01-02", "Z", 6.0, 8.0, 1.2)])   # Z 不在 panel
+    e = compute_longterm_entries(panel, val)
+    assert [sid for sid, _ in e["2024-01-02"]] == ["A"]
+
+
+def test_longterm_score_higher_for_cheaper_higher_yield():
+    """殖利率高且 PER 低者分數較高（排序在前）。"""
+    panel = {"A": None, "B": None}
+    val = _valdf([("2024-01-02", "A", 6.0, 8.0, 1.0),    # 高息低估
+                  ("2024-01-02", "B", 3.0, 19.0, 2.9)])  # 低息高估(勉強過門檻)
+    picks = compute_longterm_entries(panel, val)["2024-01-02"]
+    picks.sort(key=lambda x: x[1], reverse=True)
+    assert picks[0][0] == "A"
 
 
 if __name__ == "__main__":

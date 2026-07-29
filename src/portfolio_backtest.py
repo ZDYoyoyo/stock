@@ -330,6 +330,48 @@ def compute_t12_entries(panel: dict, rev_panel: dict, *,
     return out
 
 
+def load_valuation_panel(path):
+    """讀估值面板（backfill_valuation 產出的 csv.gz）→ DataFrame[date, stock_id, yield, per, pbr]。
+
+    月頻（每月首交易日）；compute_longterm_entries 依此逐月做價值篩選。
+    """
+    return pd.read_csv(path, dtype={"stock_id": str})
+
+
+def compute_longterm_entries(panel: dict, val_df, *, min_yield=None, max_per=None,
+                             max_pbr=None, min_roe_est=None) -> dict:
+    """長期價值 point-in-time：每個估值月份篩 殖利率≥/0<PER≤/0<PBR≤/ROE估≥，回傳 {date:[(sid,score)]}。
+
+    - ROE估＝PBR/PER×100（免費資料巧解：ROE=(E/P)×(P/B)）；門檻預設沿用 config.LONGTERM。
+    - score＝殖利率×3 + 100/PER + ROE估×1.5（核心價值綜合，同 live 評分精神）。
+    - ⚠️ 只用『核心價值因子』(BWIBBU_d 免費)；live 的配息年數硬門檻/EPS成長此處略（見報告限制）。
+    - 只評 price panel 也有的股（回測需 OHLC）。估值月份為面板月首交易日 → 訊號日隔日進場。
+    """
+    from .config import LONGTERM as L
+    min_yield = L.MIN_YIELD if min_yield is None else min_yield
+    max_per = L.MAX_PER if max_per is None else max_per
+    max_pbr = L.MAX_PBR if max_pbr is None else max_pbr
+    min_roe_est = L.MIN_ROE_EST if min_roe_est is None else min_roe_est
+
+    panel_sids = set(panel.keys())
+    out: dict[str, list] = {}
+    for date, g in val_df.groupby("date"):
+        picks = []
+        for sid, y, per, pbr in zip(g["stock_id"], g["yield"], g["per"], g["pbr"]):
+            if sid not in panel_sids:
+                continue
+            if not (y >= min_yield and 0 < per <= max_per and 0 < pbr <= max_pbr):
+                continue
+            roe_est = pbr / per * 100
+            if roe_est < min_roe_est:
+                continue
+            score = y * 3 + 100 / max(per, 1) + roe_est * 1.5
+            picks.append((sid, round(score, 2)))
+        if picks:
+            out[date] = picks
+    return out
+
+
 def compute_regime_ok(panel: dict, threshold: float = 45.0, ma: int = 20) -> dict:
     """擇時濾網：回傳 {date: bool}，當日 universe 站上 MA{ma} 比例 >= threshold% 才可開新倉。
 

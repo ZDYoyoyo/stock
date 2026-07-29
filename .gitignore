@@ -9,6 +9,8 @@ data/history/*
 !data/history/backtest_panel.csv.gz
 # 月營收面板（T12 回測，gzip）同樣納入 git
 !data/history/revenue_panel.csv.gz
+# 估值面板（長期價值軌回測，gzip）同樣納入 git
+!data/history/valuation_panel.csv.gz
 # 持股清單納入 git 同步（跨設備 + 雲端排程可見）；私有 repo 僅你可見
 !data/portfolio.csv
 reports/screener/

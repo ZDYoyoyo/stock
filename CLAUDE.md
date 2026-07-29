@@ -89,8 +89,11 @@ python -m scripts.sync_data load               # 由 CSV 重建 stock.db
   `--update`(補新日子)、`--only-new`(只加新股、舊股零API)、`--max-new`(額度保護，600/時→190/次)。
 - `scripts/backfill_revenue.py` — 回補月營收面板→`data/history/revenue_panel.csv.gz`（供 T12）。
   每檔1次 FinMind call，對齊股價面板；YoY/累計YoY 自算，公布日用 create_time(或次月10日 fallback)。
-- `tests/` — 38 個單元測試（signals／portfolio／T12 前視偏誤／db 快取）；`python -m pytest tests/ -q`。
-- 報告：`reports/signal_compare.md`、`reports/t16_tune.md`、`reports/portfolio_backtest.md`、`reports/oos_validation.md`。
+- `scripts/backfill_valuation.py` — 回補估值面板→`data/history/valuation_panel.csv.gz`（供長期價值軌）。
+  月頻(每月首交易日)抓 TWSE BWIBBU_d 殖利率/PER/PBR，僅上市；`compute_longterm_entries` 用之。
+- `scripts/run_longterm_backtest.py` — 長期價值軌回測（月頻價值篩選 vs 買入持有/+regime）。
+- `tests/` — 47 個單元測試（signals／portfolio／T12前視／長期價值篩選／db 快取）；`python -m pytest tests/ -q`。
+- 報告：`reports/signal_compare.md`、`reports/t16_tune.md`、`reports/portfolio_backtest.md`、`reports/oos_validation.md`、`reports/longterm_backtest.md`。
 
 **指令**：
 ```bash
@@ -100,6 +103,8 @@ python -m scripts.backfill_history --update           # 補回測面板新日子
 python -m scripts.backfill_history --universe 300 --only-new   # 加檔數（只抓新股）
 python -m scripts.backfill_revenue                    # 回補月營收面板（對齊股價面板，供 T12）
 python -m scripts.backfill_revenue --update           # 增量：只補面板新股的月營收
+python -m scripts.backfill_valuation                  # 回補月頻估值面板（殖利率/PER/PBR，供長期價值軌）
+python -m scripts.run_longterm_backtest               # 長期價值軌回測（vs 買入持有/+regime）
 ```
 
 **關鍵結論（離線 200 檔面板實測，2026-07）**：
@@ -112,9 +117,13 @@ python -m scripts.backfill_revenue --update           # 增量：只補面板新
   → 價的動能比基本面反應更快。用公布日(pub_date≤交易日)對齊 → 無前視偏誤。
   ✅ **T12 甜蜜點＝持8檔**：5→8 檔分散把回撤 **−42.7%→−38.2%**、夏普 **0.82→0.91**、CAGR 不減
   (+22.5%)；8→10 檔過度分散(CAGR 掉)。⚠️ **regime 對 T12 每組都變差**（加深回撤）→ 別加。
-- **實用結論**：波段用 **T16+分散+順 regime**（攻）；長期用 **買入持有+regime**（守）；
-  T12 可當「有基本面撐腰的動能」次選（**持8檔分散**、弱於 T16、別加 regime）；T11 丟。
-- **長期價值 選股尚未回測**——面板無 PER/ROE/配息歷史，要測得先回補那些基本面。
+- **長期價值軌＝此 universe/期間無 edge**（169檔上市、月頻估值實測）：持10檔/60日 CAGR **−0.5%**、
+  夏普 **0.08**，慘輸買入持有(+14.9%/0.71)；+regime 也僅救到 +2.0%。⚠️ 主因：2022–2026 是
+  半導體/AI 成長股主導的市場，價值(高息低估)股大幅落後(價值陷阱)；且 200 檔面板偏大型流動股、
+  對價值不利。**不代表價值投資無效**，是「此流動性面板×此成長期間」價值沒 edge。
+  用核心價值因子(殖利率/PER/PBR/ROE估)；配息年數/EPS 未納入(見報告)。
+- **實用結論**：波段用 **T16+分散+順 regime**（攻）；長期用 **買入持有+regime**（守，勝過價值選股）；
+  T12 可當「有基本面撐腰的動能」次選（**持8檔分散**、弱於 T16、別加 regime）；T11、長期價值選股 丟。
 
 **已知限制／可延伸**：
 - 離線面板 ~200 檔、仍有倖存者偏誤（動能策略尤其樂觀，實際 edge 會小些）。
@@ -146,7 +155,8 @@ python -m scripts.backfill_revenue --update           # 增量：只補面板新
   券資比 → 每檔一句「🟢偏多/⚪觀望/🔴偏空」定調。「加判讀不加欄」，最有價值。
 - **② 資料受限籌碼欄**：✅當沖比率（妖股對殺，已做 day_trade_signal，5328~79%驗證）；
   待做：借券賣出餘額（法人真實空單）、主力分點（要 FinMind Sponsor 付費）。
-- **③ 回測驗證缺口**：長期價值軌未回測（缺 PER/ROE/配息歷史，要先回補）、T16 嚴格樣本外。
+- **③ 回測驗證缺口**：✅長期價值軌已回測（無 edge，見上結論）；待做：T16 嚴格樣本外、
+  價值軌納配息年數/EPS 因子、上櫃估值(BWIBBU_d 僅上市)。
 
 ## 提醒使用者的常見事項
 
