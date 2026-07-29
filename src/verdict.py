@@ -6,9 +6,12 @@
 配色遵台股慣例：🔴偏多(看漲)／🟢偏空(看跌)／⚪觀望（與 chip_signal/tech_signal 一致）。
 ⚠️ 籌碼/技術為昨日收盤後資料 → 是**方向偏誤(bias)，非盤中即時訊號**；進出點仍看盤中量價。
 
-5 面向（各 +1 偏多／−1 偏空／0 中性）：
+7 面向（各 +1 偏多／−1 偏空／0 中性，除⑦僅單向）：
   ① 法人主導度%（籌碼）  ② 融資佔量%（散戶反向：退場=多／接刀=空）
   ③ 均線排列（短期技術）  ④ 季線年線（中長期技術）  ⑤ 20MA乖離%（站上/跌破月線）
+  ⑥ 52週位置%（波段動能：近高檔=多／近低檔=空，順本專案 T16 動能 edge）
+  ⑦ 券資比%（軋空底氣：偏高=+1 單向軟提醒；語意兩面故不做偏空，只在高檔加多方分）
+門檻 ±3（面向由 5→7、須多數一致才定調，避免單一訊號翻盤）。
 """
 from __future__ import annotations
 
@@ -30,11 +33,17 @@ def _vote(r: pd.Series) -> int:
     bias = r.get("20MA乖離%")
     if pd.notna(bias):
         v += 1 if bias > 0 else (-1 if bias < 0 else 0)
+    pos = r.get("52週位置%")
+    if pd.notna(pos):
+        v += 1 if pos > 70 else (-1 if pos < 30 else 0)   # 近年高檔=動能多／近低檔=空
+    smr = r.get("券資比%")
+    if pd.notna(smr) and smr > 20:
+        v += 1                                             # 券資比偏高=軋空底氣，單向軟提醒
     return v
 
 
 def label(v: int) -> str:
-    return "🔴偏多" if v >= 2 else ("🟢偏空" if v <= -2 else "⚪觀望")
+    return "🔴偏多" if v >= 3 else ("🟢偏空" if v <= -3 else "⚪觀望")
 
 
 def add_verdict(df: pd.DataFrame) -> pd.DataFrame:
