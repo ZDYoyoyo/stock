@@ -61,10 +61,18 @@ trust_net/dealer_net/total_net`、`margin_balance/short_balance` 同理）。所
 ```bash
 python -m scripts.run_all                      # 一鍵全部（抓資料+選股+報告）
 python -m scripts.run_all --no-update          # 用現有資料，不重抓（測試用）
-python -m scripts.run_all --skip-longterm      # 略過較慢的長期軌
+python -m scripts.run_all --skip-longterm      # 略過較慢的長期軌（日常盤後用這個，省 FinMind 額度）
+python -m scripts.run_longterm                 # 長期價值軌單獨跑（每週一次即可）
 # 注意：沒有 --no-sync 這個參數
 python -m scripts.sync_data load               # 由 CSV 重建 stock.db
 ```
+
+⚠️ **FinMind 免費額度 600/時常不夠**：主要燒在**長期軌逐檔深掘**（每檔粗篩通過打 3 次：
+配息/月營收/財報）。故**日常盤後已預設 `--skip-longterm`**（`一鍵執行/1_盤後選股.bat`＋GUI
+「盤後選股」按鈕），長期軌拆成**每週跑一次** `一鍵執行/4_更新長期價值(週更).bat`（＝
+`scripts.run_longterm`）。長期價值慢變且回測此期間無 edge，不必每天燒額度。要更多額度/歷史
+＝辦 FinMind Sponsor（一併解鎖千張大戶歷史/借券歷史/主力分點）。⚠️ 別用多帳號多 token 繞額度
+（違反 ToS，帳號可能被封）。
 
 ## 程式地圖（關鍵檔）
 

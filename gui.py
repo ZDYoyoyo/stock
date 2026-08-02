@@ -89,8 +89,7 @@ class Console:
     def _buttons(self, p):
         self._section(p, "每日")
         self._btn(p, "🌅 盤前快報(環境+費半)", lambda: self.run(["scripts.run_morning"], "盤前快報"), "#fff7e6")
-        self._btn(p, "📊 盤後選股+推播", lambda: self.run(["scripts.run_all", "--notify"], "盤後選股"), "#e8f0fe")
-        self._btn(p, "⚡ 快速選股(略長期)", lambda: self.run(["scripts.run_all", "--skip-longterm", "--notify"], "快速選股"), "#e8f0fe")
+        self._btn(p, "📊 盤後選股+推播", lambda: self.run(["scripts.run_all", "--skip-longterm", "--notify"], "盤後選股"), "#e8f0fe")
         self._btn(p, "🛡️ 盤中持股守衛", lambda: self.run(["scripts.monitor_portfolio"], "盤中守衛"), "#fef3e8")
 
         self._section(p, "資料 / 每週")
@@ -111,7 +110,7 @@ class Console:
         self._section(p, "單軌 / 研究")
         self._btn(p, "🚀 月營收動能T12", lambda: self.run(["scripts.run_t12"], "月營收動能"), "#e8fbef")
         self._btn(p, "🏦 主力籌碼排行", lambda: self.run(["scripts.run_mainforce"], "主力籌碼"), "#eef4ff")
-        self._btn(p, "🟢 長期價值", lambda: self.run(["scripts.run_longterm"], "長期價值"))
+        self._btn(p, "🟢 長期價值(週更)", lambda: self.run(["scripts.run_longterm"], "長期價值"))
         self._btn(p, "🔴 當沖候選", lambda: self.run(["scripts.run_daytrade"], "當沖候選"))
         self._btn(p, "🔬 基本面深掘", lambda: self.run(["scripts.run_t30"], "深掘"))
         self._btn(p, "🧨 地雷偵測(持股)", lambda: self.run(["scripts.run_landmine", "--holdings"], "地雷偵測-持股"), "#fde8e8")
