@@ -155,16 +155,21 @@ def _section(f, title, df, cols, n=15, skipped=False, note=None):
         f.write("（今日無符合條件標的）\n")
     else:
         keep = [c for c in cols if c in df.columns]
+        # 補上分組來源欄（今/20/60日等雖不在 cols，仍需讀來堆疊同格）
+        keep += [c for c in report_html.group_source_cols()
+                 if c in df.columns and c not in keep]
         disp = df[keep].head(n).copy()
-        # 今日+10日 合併同格（MD 用「今／10日」斜線併排），今日欄併入後移除
-        merged_labels = {}
-        for anchor, today_col in report_html.MERGE_PAIRS.items():
-            if anchor in disp.columns and today_col in disp.columns:
-                disp[anchor] = [report_html.fmt_pair_text(t, d)
-                                for t, d in zip(disp[today_col], disp[anchor])]
-                merged_labels[anchor] = report_html.MERGE_BASE[anchor] + "今/10日"
-        drop = [t for a, t in report_html.MERGE_PAIRS.items()
-                if a in disp.columns and t in disp.columns]
+        # 多時窗合併同格（MD 用「今／10／20／60」斜線併排），來源欄併入後移除
+        merged_labels, drop = {}, []
+        for anchor, (base, srcs) in report_html.MERGE_GROUPS.items():
+            if anchor not in disp.columns:
+                continue
+            cols_present = [(c, disp[c] if c in disp.columns else None) for c, _ in srcs]
+            disp[anchor] = [report_html.fmt_group_text(
+                [(s.iloc[i] if s is not None else pd.NA) for _, s in cols_present])
+                for i in range(len(disp))]
+            merged_labels[anchor] = base + report_html._GROUP_HEAD
+            drop += [c for c, _ in srcs if c != anchor and c in disp.columns]
         disp = disp.drop(columns=drop).rename(
             columns={**report_html.COLUMN_LABELS, **merged_labels})
         f.write(disp.to_markdown(index=False) + "\n")
@@ -344,6 +349,23 @@ def main():
     df12 = flows_mod.enrich(df12, flows=_flows)   # 五軌一致：成長軌也看法人/資券
     dflt = flows_mod.enrich(dflt, flows=_flows)   # 長期軌也看法人/資券
 
+    # 追加 20日/60日 累積窗（月/季，補10日不足）：同格堆疊今/10/20/60，不新增欄
+    for _w in (20, 60):
+        _fw = flows_mod.institution_flows(days=_w).rename(columns={
+            "外資": f"外資{_w}日", "投信": f"投信{_w}日", "自營": f"自營{_w}日",
+            "融資增減": f"融資{_w}日", "融券增減": f"融券{_w}日"})
+        if _fw is None or _fw.empty:
+            continue
+        _wcols = [c for c in _fw.columns if c != "stock_id"]
+        def _mw(d):
+            if d is None or d.empty:
+                return d
+            d = d.merge(_fw, on="stock_id", how="left")
+            for c in _wcols:
+                d[c] = d[c].astype("Int64")   # 保留 NA、整數顯示
+            return d
+        df11, df16, dfdt, df12, dflt = _mw(df11), _mw(df16), _mw(dfdt), _mw(df12), _mw(dflt)
+
     # 併入「今日單日」法人分項(外資/投信/自營今日)＋資券今日增減，看「今天誰在動」
     _tf = _today_flows()
     _tcols = ["外資今日", "投信今日", "自營今日", "融資今日", "融券今日"]
@@ -430,8 +452,8 @@ def main():
     _flownote = (
         "🧭 定調＝籌碼＋技術 7面向投票的一句話方向(🔴偏多找買點/⚪觀望/🟢偏空，須≥3方向一致)：法人主導·融資散戶·"
         "均線排列·季線年線·20MA乖離·52週位置·券資比軋空。⚠️昨日收盤後資料的**方向偏誤(bias)非盤中即時**，進出仍看盤中量價\n"
-        "📊 法人/資券欄｜每格兩個數＝今日單日／近10日累積(HTML 上下兩行、MD 以／分隔)；"
-        "外資·投信·自營＝買賣超(🔴買超/🟢賣超)，融資·融券＝餘額增減(🔴增/🟢減)"
+        "📊 法人/資券欄｜每格四個數＝今日／近10日／近20日(月)／近60日(季)累積(HTML 由上而下四行、MD 以／分隔，位置對應)；"
+        "外資·投信·自營＝買賣超(🔴買超/🟢賣超)，融資·融券＝餘額增減(🔴增/🟢減)；短窗看轉折、長窗看主力方向"
         "\n　↳ 融資增＝散戶借錢追價⚠️籌碼較不安定；融券增＝空單多·股價若強有軋空機會(未來須回補)——顏色只表增減，好壞配股價方向看"
         "\n🔁 連續｜外資連·投信連·自營連＝當前連續同向天數(正=連買／負=連賣，看誰在狂買狂賣)"
         "\n🎯 主導度%＝今日法人淨額÷成交量(法人是否主導)；💬 籌碼訊號＝今日共識／連買連賣強度一句話合成"

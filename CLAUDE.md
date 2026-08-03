@@ -80,7 +80,8 @@ python -m scripts.sync_data load               # 由 CSV 重建 stock.db
 - `src/report_html.py` — HTML 輸出＋`COLUMN_LABELS`（英文欄名→中文顯示名）＋`rename_cn`。
 - `src/chip_signal.py` — 籌碼訊號：連買賣天數、法人主導度%、訊號標籤、量能倍數、券資比%、
   資券佔量%（把資券絕對張數相對化，避免「融券−343」被誤判大小）。
-- `src/flows.py` — 法人近10日流向、資券增減併欄。
+- `src/flows.py` — 法人多時窗流向(近10/20/60日淨買賣超)、資券增減併欄；`institution_flows(days=N)`
+  參數化。報告用 `report_html.MERGE_GROUPS` 把今/10/20/60 同格堆疊(欄數不變、版面不爆)。
 - `src/tech_signal.py` — 技術面併欄：均線排列(5/10/20多空)、季線年線(60/240MA中長多空)、
   20MA乖離%、52週位置%(近1年區間位置)、成交額億(資金權重)。需長歷史→靠滾動窗每日DB。
 - `src/screeners/` — 各軌篩選器 + `landmine`(地雷偵測)。

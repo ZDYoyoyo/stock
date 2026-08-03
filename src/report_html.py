@@ -42,22 +42,32 @@ COLUMN_LABELS = {
     "營收YoY%": "營收年增%",
 }
 
-# 今日+10日 合併顯示（省欄）：把「外資今日」併進「外資」(=近10日) 同一格。
-# key＝10日欄(anchor，df 內欄名)、value＝對應今日欄。HTML 兩行上色、MD 斜線併排。
-# CSV 不套用（rename_cn 走 COLUMN_LABELS，維持今/10日分開欄，Excel 好篩選）。
-MERGE_PAIRS = {"外資": "外資今日", "投信": "投信今日", "自營": "自營今日",
-               "融資增減": "融資今日", "融券增減": "融券今日"}
-MERGE_BASE = {"外資": "外資", "投信": "投信", "自營": "自營",
-              "融資增減": "融資", "融券增減": "融券"}
+# 多時窗合併顯示（省欄）：把 今/10/20/60 日堆進「外資」等同一格，欄數不變。
+# key＝anchor(10日欄，df 內欄名、也是 cols 清單裡的欄)；value＝(顯示基名, [(來源欄, 小標)...])。
+# 依序堆疊今→10→20→60；HTML 多行各自上色、MD 斜線併排、位置對應小標。
+# CSV 不套用（rename_cn 走 COLUMN_LABELS，維持各時窗分開欄，Excel 好篩選）。
+MERGE_GROUPS = {
+    "外資":     ("外資", [("外資今日", "今"), ("外資", "10日"), ("外資20日", "20日"), ("外資60日", "60日")]),
+    "投信":     ("投信", [("投信今日", "今"), ("投信", "10日"), ("投信20日", "20日"), ("投信60日", "60日")]),
+    "自營":     ("自營", [("自營今日", "今"), ("自營", "10日"), ("自營20日", "20日"), ("自營60日", "60日")]),
+    "融資增減": ("融資", [("融資今日", "今"), ("融資增減", "10日"), ("融資20日", "20日"), ("融資60日", "60日")]),
+    "融券增減": ("融券", [("融券今日", "今"), ("融券增減", "10日"), ("融券20日", "20日"), ("融券60日", "60日")]),
+}
+_GROUP_HEAD = "今/10/20/60日"
+
+
+def group_source_cols():
+    """所有分組來源欄（供 MD 端補進 disp 供堆疊；HTML 端讀整列不需要）。"""
+    return [src for _, srcs in MERGE_GROUPS.values() for src, _ in srcs]
 
 
 def _fmt_signed(v):
     return "—" if pd.isna(v) else f"{v:+,.0f}"
 
 
-def fmt_pair_text(today, tenday):
-    """MD 用：今日／10日 併成一格文字（純文字表格無法兩行）。"""
-    return f"{_fmt_signed(today)}／{_fmt_signed(tenday)}"
+def fmt_group_text(vals) -> str:
+    """MD 用：今/10/20/60 依序併成一格文字（純文字表格無法多行，位置對應小標）。"""
+    return "／".join(_fmt_signed(v) for v in vals)
 
 
 GLOSSARY = ("📖 術語小抄：本益比(PER)＝股價÷每股盈餘，數字越低越便宜；"
@@ -139,32 +149,37 @@ def _fmt(v):
     return str(v)
 
 
-def _pair_cell(tv, dv) -> str:
-    """今日+10日 合併格：上行今日(粗)、下行10日(小灰)，各自紅正綠負。"""
-    def span(v, cls):
-        if pd.isna(v):
+def _group_cell(row, srcs) -> str:
+    """多時窗合併格：今(粗)→10→20→60(小灰)依序堆疊，各自紅正綠負；缺值顯示—。"""
+    def span(col, cls):
+        v = row[col] if col in row.index else None
+        if v is None or pd.isna(v):
             return f'<span class="{cls}">—</span>'
         color = _UP if v > 0 else (_DOWN if v < 0 else "#888")
         return f'<span class="{cls}" style="color:{color}">{v:+,.0f}</span>'
-    return f'<td class="pair">{span(tv, "tv")}{span(dv, "dv")}</td>'
+    parts = [span(col, "tv" if i == 0 else "dv") for i, (col, _) in enumerate(srcs)]
+    return f'<td class="pair">{"".join(parts)}</td>'
 
 
 def _table(df: pd.DataFrame, cols, signed_cols) -> str:
-    # 今日欄併入10日欄同格後隱藏（僅當 anchor 存在時）
-    hide = {t for a, t in MERGE_PAIRS.items() if a in df.columns and t in df.columns}
+    # 多時窗來源欄併入 anchor 同格後隱藏（僅當 anchor 存在時；今/20/60日等不獨立成欄）
+    hide = set()
+    for anchor, (_, srcs) in MERGE_GROUPS.items():
+        if anchor in df.columns:
+            hide.update(col for col, _ in srcs if col != anchor)
     cols = [c for c in cols if c in df.columns and c not in hide]
     head = ""
     for c in cols:
-        if c in MERGE_PAIRS and MERGE_PAIRS[c] in df.columns:
-            head += f'<th>{MERGE_BASE[c]}<small>今 / 10日</small></th>'
+        if c in MERGE_GROUPS and c in df.columns:
+            head += f'<th>{MERGE_GROUPS[c][0]}<small>{_GROUP_HEAD}</small></th>'
         else:
             head += f"<th>{label(c)}</th>"
     body = ""
     for _, row in df.iterrows():
         tds = ""
         for c in cols:
-            if c in MERGE_PAIRS and MERGE_PAIRS[c] in df.columns:
-                tds += _pair_cell(row[MERGE_PAIRS[c]], row[c])
+            if c in MERGE_GROUPS and c in df.columns:
+                tds += _group_cell(row, MERGE_GROUPS[c][1])
                 continue
             v = row[c]
             style = ""
