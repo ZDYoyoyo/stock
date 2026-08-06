@@ -124,13 +124,30 @@ def analyze(panel: pd.DataFrame):
     corr = p["隔日沖賣壓%"].corr(p["ret_next"])
     corr_s = p["隔日沖賣壓%"].corr(p["ret_same"])
     print(f"\n相關係數 賣壓% vs 次日報酬: {corr:+.3f}　| vs 當日報酬: {corr_s:+.3f}")
-    hi = p[p["隔日沖賣壓%"] >= p["隔日沖賣壓%"].quantile(0.8)]
-    lo = p[p["隔日沖賣壓%"] <= p["隔日沖賣壓%"].quantile(0.2)]
-    print(f"高賣壓組(前20%) 次日均報酬 {hi['ret_next'].mean():+.2f}%（下跌 {(hi['ret_next']<0).mean()*100:.0f}%）")
-    print(f"低賣壓組(後20%) 次日均報酬 {lo['ret_next'].mean():+.2f}%（下跌 {(lo['ret_next']<0).mean()*100:.0f}%）")
-    diff = hi["ret_next"].mean() - lo["ret_next"].mean()
-    print(f"高−低 次日報酬差: {diff:+.2f}%（負=高賣壓確實隔日較弱→訊號有方向）")
-    print("\n⚠️ 限制：小 universe(高流動高波動)、期間短、有倖存者偏誤、未計成本/滑價；僅方向性參考。")
+
+    # 極端尾巴：只有很高的賣壓才可能有訊號
+    print("\n[極端尾巴] 高賣壓門檻 → 次日表現")
+    for th in (10, 15, 20, 30):
+        hi = p[p["隔日沖賣壓%"] >= th]
+        if len(hi) >= 20:
+            print(f"  賣壓≥{th}% (n={len(hi):>4}): 次日均 {hi['ret_next'].mean():+.2f}%"
+                  f"（下跌 {(hi['ret_next'] < 0).mean()*100:.0f}%）")
+
+    # 組合：高賣壓 且 當日已下跌（續弱確認）
+    q80 = p["隔日沖賣壓%"].quantile(0.8)
+    combo = p[(p["隔日沖賣壓%"] >= q80) & (p["ret_same"] < 0)]
+    print(f"\n[組合] 高賣壓(前20%) 且 當日已跌 (n={len(combo)}): "
+          f"次日均 {combo['ret_next'].mean():+.2f}%（下跌 {(combo['ret_next'] < 0).mean()*100:.0f}%）")
+
+    # 對照：主力淨額方向的預測力
+    cm = p["主力淨額"].corr(p["ret_next"])
+    print(f"\n[對照] 主力淨額 vs 次日報酬 相關 {cm:+.3f}｜"
+          f"主力淨買日 次日均 {p[p['主力淨額'] > 0]['ret_next'].mean():+.2f}%、"
+          f"淨賣日 {p[p['主力淨額'] < 0]['ret_next'].mean():+.2f}%")
+
+    print("\n【結論】隔日沖賣壓% 單獨看≈無 edge（相關≈0、分組不單調）；"
+          "只有『極端(≥20%)』或『搭配當日走弱』才預告隔日偏空。主力淨額方向性略強但仍弱。"
+          "\n⚠️ 限制：小 universe(高流動高波動)、期間短、倖存者偏誤、未計成本/滑價；僅方向性參考、非策略保證。")
 
 
 def main():
