@@ -91,6 +91,11 @@ python -m scripts.sync_data load               # 由 CSV 重建 stock.db
   優先；`compute`(逐檔 live 查) fallback；`fetch_market_day`(Sponsor 全市場單日→DB rows)。
 - `scripts/backfill_sbl.py` — 回補借券歷史→DB `sbl` 表(股÷1000→張)。逐日全市場(1 call/交易日)、逐日 commit
   可續跑；`--days N` 增量。run_all `_update` 已自動接(每日累積)。dump 隨 `sync_data` 進 CSV(進 git)。
+- `src/broker_client.py` — 券商分點日報 client(`TaiwanStockTradingDailyReport`, Sponsor)：`available()` 偵測、
+  `branch_summary` 主力買賣超摘要。⚠️分點僅**單日**查(`end_date` 需 none/等於 start)、量大**不落 DB**。
+- `src/broker_signal.py` — 分點主力淨額＋隔日沖偵測 enrich(需 Sponsor)：`compute(ids, day, prev, vol_map)` 出
+  「主力淨額(前15買超+前15賣超淨額)」＋「隔日沖賣壓%(昨日前15大買超分點今日轉淨賣量÷今日量→抓昨進今出大戶倒貨、
+  補當沖比看不到的隔日沖盲區)」。逐檔 on-demand(每檔 T/T-1 各1 call)、僅對顯示候選(head 20/軌)。run_all 已接。
 
 ## 回測框架（P1–P6，2026-07 量化顧問專案已建）
 
@@ -115,7 +120,7 @@ python -m scripts.sync_data load               # 由 CSV 重建 stock.db
 - `scripts/backfill_valuation.py` — 回補估值面板→`data/history/valuation_panel.csv.gz`（供長期價值軌）。
   月頻(每月首交易日)抓 TWSE BWIBBU_d 殖利率/PER/PBR，僅上市；`compute_longterm_entries` 用之。
 - `scripts/run_longterm_backtest.py` — 長期價值軌回測（月頻價值篩選 vs 買入持有/+regime）。
-- `tests/` — 59 個單元測試（signals／portfolio／T12前視／長期價值篩選／db 快取／定調7面向／借券enrich／T16 OOS純函式）；`python -m pytest tests/ -q`。
+- `tests/` — 74 個單元測試（signals／portfolio／T12前視／長期價值篩選／db 快取／定調7面向／借券enrich＋歷史增減／分點主力淨額＋隔日沖賣壓／T16 OOS純函式）；`python -m pytest tests/ -q`。
 - 報告：`reports/signal_compare.md`、`reports/t16_tune.md`、`reports/portfolio_backtest.md`、`reports/oos_validation.md`、`reports/longterm_backtest.md`、`reports/t16_oos.md`。
 
 **指令**：
@@ -186,7 +191,9 @@ python -m scripts.run_t16_oos                          # T16 嚴格樣本外 wal
   ✅借券賣出餘額＋**借券增減趨勢**（法人真實空單，`sbl_signal`：TaiwanDailyShortSaleBalances 的
   SBLShortSalesCurrentDayBalance；**已辦 Sponsor→改全市場落 DB `sbl` 表**，`backfill_sbl` 回補歷史、
   run_all 每日累積，`compute_from_db` 出「借券賣出餘額(最新)＋借券增減(vs前日)」，+=法人加空/−=回補）；
-  待做：主力分點（分點日報 TaiwanStockTradingDailyReport，Sponsor 已解鎖、`broker_client` 已接、尚未上線報告）。
+  ✅**主力分點＋隔日沖賣壓%**（`broker_signal`：分點主力淨額＋昨日大買家今日倒貨的隔日沖偵測，補當沖比盲區；
+  Sponsor 分點、逐檔 on-demand 僅對顯示候選、量大不落 DB；5 軌報告已加「主力淨額/隔日沖賣壓%」欄）。
+  待做：個股深掘工具([6]，分點歷史時間軸/隔日沖圖譜)；隔日沖訊號回測([8])。
 - **③ 回測驗證缺口**：✅長期價值軌已回測（無 edge）；✅T16 嚴格樣本外（walk-forward，
   run_t16_oos：OOS +37.9%/夏普1.11 小勝買入持有但回撤更深、逐折分散、edge 存活但脆弱）；
   待做：價值軌納配息年數/EPS 因子、上櫃估值(BWIBBU_d 僅上市)、T12 樣本外。
