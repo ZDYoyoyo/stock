@@ -142,7 +142,7 @@ tbody tr:hover { background: #eef3fb; }
 
 
 def _fmt(v):
-    if v is None or (isinstance(v, float) and math.isnan(v)):
+    if v is None or v is pd.NA or (isinstance(v, float) and math.isnan(v)):
         return "—"
     if isinstance(v, float):
         return f"{v:,.2f}".rstrip("0").rstrip(".") if abs(v) < 1e6 else f"{v:,.0f}"

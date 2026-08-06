@@ -67,12 +67,12 @@ python -m scripts.run_longterm                 # 長期價值軌單獨跑（每�
 python -m scripts.sync_data load               # 由 CSV 重建 stock.db
 ```
 
-⚠️ **FinMind 免費額度 600/時常不夠**：主要燒在**長期軌逐檔深掘**（每檔粗篩通過打 3 次：
-配息/月營收/財報）。故**日常盤後已預設 `--skip-longterm`**（`一鍵執行/1_盤後選股.bat`＋GUI
-「盤後選股」按鈕），長期軌拆成**每週跑一次** `一鍵執行/4_更新長期價值(週更).bat`（＝
-`scripts.run_longterm`）。長期價值慢變且回測此期間無 edge，不必每天燒額度。要更多額度/歷史
-＝辦 FinMind Sponsor（一併解鎖千張大戶歷史/借券歷史/主力分點）。⚠️ 別用多帳號多 token 繞額度
-（違反 ToS，帳號可能被封）。
+✅ **已辦 FinMind Sponsor（2026-08，token 在環境變數 `FINMIND_TOKEN`）**：額度 6000/時、解鎖
+分點日報(`TaiwanStockTradingDailyReport`)＋千張大戶歷史(`TaiwanStockHoldingSharesPer`)＋借券已全市場落 DB。
+升級規劃與實作順序見 `docs/Sponsor升級規劃.md`。⚠️ 別用多帳號多 token 繞額度（違反 ToS，帳號可能被封）。
+- （歷史備註）免費 600/時常不夠：主燒在長期軌逐檔深掘，故曾預設 `--skip-longterm`＋長期軌拆週更
+  （`一鍵執行/4_更新長期價值(週更).bat`＝`scripts.run_longterm`）。Sponsor 6000/時後長期軌可回歸日更
+  （見規劃 [2]，尚未改回，待驗證額度後動）。
 
 ## 程式地圖（關鍵檔）
 
@@ -87,6 +87,10 @@ python -m scripts.sync_data load               # 由 CSV 重建 stock.db
 - `src/screeners/` — 各軌篩選器 + `landmine`(地雷偵測)。
 - `src/twse_client.py` / `src/tpex_client.py` — 官方資料 client（上市／上櫃）；含 `day_trade` 當沖統計。
 - `src/day_trade_signal.py` — 當沖比率% 併欄（妖股對殺偵測，TWSE+TPEX 官方當沖÷總量，免費）。
+- `src/sbl_signal.py` — 借券賣出餘額(法人真實空單)：`compute_from_db`(讀 DB sbl 歷史→借券賣出餘額+借券增減趨勢)
+  優先；`compute`(逐檔 live 查) fallback；`fetch_market_day`(Sponsor 全市場單日→DB rows)。
+- `scripts/backfill_sbl.py` — 回補借券歷史→DB `sbl` 表(股÷1000→張)。逐日全市場(1 call/交易日)、逐日 commit
+  可續跑；`--days N` 增量。run_all `_update` 已自動接(每日累積)。dump 隨 `sync_data` 進 CSV(進 git)。
 
 ## 回測框架（P1–P6，2026-07 量化顧問專案已建）
 
@@ -179,9 +183,10 @@ python -m scripts.run_t16_oos                          # T16 嚴格樣本外 wal
   （法人主導/融資散戶/均線排列/季線年線/20MA乖離/52週位置/券資比軋空）→ 每檔一句
   「🔴偏多/⚪觀望/🟢偏空」，門檻 ±3（須≥3方向一致）。當沖軌另有 intraday 專用「多空傾向」。
 - **② 資料受限籌碼欄**：✅當沖比率（妖股對殺，day_trade_signal，5328~79%驗證）；
-  ✅借券賣出餘額（法人真實空單，`sbl_signal`：FinMind TaiwanDailyShortSaleBalances 的
-  SBLShortSalesCurrentDayBalance，免費層逐檔查當日候選股、股÷1000→張，不落 DB）；
-  待做：主力分點（要 FinMind Sponsor 付費）。
+  ✅借券賣出餘額＋**借券增減趨勢**（法人真實空單，`sbl_signal`：TaiwanDailyShortSaleBalances 的
+  SBLShortSalesCurrentDayBalance；**已辦 Sponsor→改全市場落 DB `sbl` 表**，`backfill_sbl` 回補歷史、
+  run_all 每日累積，`compute_from_db` 出「借券賣出餘額(最新)＋借券增減(vs前日)」，+=法人加空/−=回補）；
+  待做：主力分點（分點日報 TaiwanStockTradingDailyReport，Sponsor 已解鎖、`broker_client` 已接、尚未上線報告）。
 - **③ 回測驗證缺口**：✅長期價值軌已回測（無 edge）；✅T16 嚴格樣本外（walk-forward，
   run_t16_oos：OOS +37.9%/夏普1.11 小勝買入持有但回撤更深、逐折分散、edge 存活但脆弱）；
   待做：價值軌納配息年數/EPS 因子、上櫃估值(BWIBBU_d 僅上市)、T12 樣本外。

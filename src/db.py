@@ -65,6 +65,11 @@ CREATE TABLE IF NOT EXISTS big_holders (
     pct_400 REAL,             -- 大戶(≥400張)持股比%
     PRIMARY KEY (date, stock_id)
 );
+CREATE TABLE IF NOT EXISTS sbl (
+    date TEXT, stock_id TEXT,
+    sbl_balance INTEGER,      -- 借券賣出餘額（張，法人真實空單；股÷1000）
+    PRIMARY KEY (date, stock_id)
+);
 """
 
 

@@ -21,6 +21,28 @@ from .finmind_client import fetch
 
 _DATASET = "TaiwanDailyShortSaleBalances"
 _COLS = ["stock_id", "借券賣出餘額"]
+_BAL_FIELD = "SBLShortSalesCurrentDayBalance"   # 借券賣出當日餘額（股）
+
+
+def fetch_market_day(day_iso: str) -> list[dict]:
+    """抓某交易日『全市場』借券賣出餘額 → DB sbl 表 rows（股÷1000→張）。
+
+    Sponsor 可一次抓全市場（不帶 data_id，單一 call 回當日全部）→ 回補/每日累積都省。
+    回傳 [{date, stock_id, sbl_balance}]；假日/無資料回空。
+    """
+    try:
+        data = fetch(_DATASET, start_date=day_iso, end_date=day_iso)
+    except Exception:
+        return []
+    rows = []
+    for d in data:
+        sid = str(d.get("stock_id", "")).strip()
+        bal = d.get(_BAL_FIELD)
+        if not sid or bal is None:
+            continue
+        rows.append({"date": day_iso, "stock_id": sid,
+                     "sbl_balance": int(round(bal / 1000))})   # 股 → 張
+    return rows
 
 
 def _latest_date() -> str:
@@ -29,6 +51,35 @@ def _latest_date() -> str:
     if px is None or px.empty:
         return date.today().isoformat()
     return sorted(px["date"].unique())[-1]
+
+
+def compute_from_db(stock_ids) -> pd.DataFrame:
+    """由 DB sbl 歷史算 [借券賣出餘額(最新), 借券增減(vs 前一交易日)]（張）。
+
+    有回補歷史時優先用這個：一次讀表、不打 API，且多出『借券增減』趨勢欄
+    （+=法人空單加碼→偏空、−=回補→潛在買盤）。無歷史/表不存在回空表，上層 fallback compute()。
+    """
+    ids = {str(s).strip() for s in stock_ids if pd.notna(s) and str(s).strip()}
+    cols = ["stock_id", "借券賣出餘額", "借券增減"]
+    if not ids:
+        return pd.DataFrame(columns=cols)
+    from .db import connect
+    with connect() as conn:
+        try:
+            df = pd.read_sql("SELECT date, stock_id, sbl_balance FROM sbl", conn)
+        except Exception:
+            return pd.DataFrame(columns=cols)
+    if df.empty:
+        return pd.DataFrame(columns=cols)
+    df = df[df["stock_id"].isin(ids)].sort_values("date")
+    rows = []
+    for sid, g in df.groupby("stock_id"):
+        bals = g["sbl_balance"].tolist()
+        delta = (bals[-1] - bals[-2]) if len(bals) >= 2 else None
+        rows.append((sid, int(bals[-1]), int(delta) if delta is not None else pd.NA))
+    out = pd.DataFrame(rows, columns=cols)
+    out["借券增減"] = out["借券增減"].astype("Int64")
+    return out
 
 
 def compute(stock_ids, start_date: str | None = None) -> pd.DataFrame:
