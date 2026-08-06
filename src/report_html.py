@@ -119,7 +119,7 @@ h3 { font-size: 14px; margin: 14px 0 4px; }
 .warn ul { margin:6px 0 0; padding-left:20px; }
 ul.ft { margin:4px 0 12px; padding-left:20px; font-size:13px; line-height:1.7; }
 .tblwrap { overflow-x: auto; }
-table { border-collapse: collapse; width: 100%; font-size: 13px; background: #fff;
+table { border-collapse: separate; border-spacing: 0; width: 100%; font-size: 13px; background: #fff;
   border-radius: 8px; overflow: hidden; box-shadow: 0 1px 3px rgba(0,0,0,.06); }
 th, td { padding: 7px 10px; text-align: right; white-space: nowrap; }
 th { background: #2c3e50; color: #fff; font-weight: 600; }
@@ -130,6 +130,23 @@ td.pair .dv { display:block; font-size:11px; opacity:.62; }
 td:nth-child(-n+3), th:nth-child(-n+3) { text-align: left; }
 tbody tr:nth-child(even) { background: #f7f8fa; }
 tbody tr:hover { background: #eef3fb; }
+/* 表頭固定：直向捲動時欄位標題不消失 */
+thead th { position: sticky; top: 0; z-index: 3; }
+/* 首欄(代號)固定：橫向捲動時看得到是哪一檔 */
+th:first-child, td:first-child { position: sticky; left: 0; }
+thead th:first-child { z-index: 4; }
+td:first-child { z-index: 1; background: #fff; }
+tbody tr:nth-child(even) td:first-child { background: #f7f8fa; }
+tbody tr:hover td:first-child { background: #eef3fb; }
+/* 欄位顯示開關面板 */
+.colctrl { position: sticky; top: 0; z-index: 5; background:#eef2f7; border:1px solid #d5dbe4;
+  border-radius:8px; padding:8px 12px; margin:12px 0; font-size:13px; }
+.colctrl summary { cursor:pointer; font-weight:600; color:#2c3e50; }
+.colctrl .cols { display:flex; flex-wrap:wrap; gap:4px 14px; margin-top:8px; }
+.colctrl label { display:inline-flex; align-items:center; gap:4px; white-space:nowrap; font-weight:400; }
+.colctrl .btns { margin-top:8px; display:flex; gap:8px; }
+.colctrl button { font-size:12px; padding:3px 10px; border:1px solid #b8c0cc; border-radius:6px;
+  background:#fff; cursor:pointer; }
 .star { background:#fffbe6; border:1px solid #ffe28a; border-radius:8px; padding:10px 14px; }
 .disclaimer { color:#999; font-size:12px; margin-top:20px; }
 @media (prefers-color-scheme: dark) {
@@ -137,6 +154,12 @@ tbody tr:hover { background: #eef3fb; }
   tbody tr:nth-child(even){ background:#23272e; } th{ background:#333a44; }
   .sub{color:#aaa;} h2{border-color:#333;}
   .warn{ background:#2a1d1d; }
+  td:first-child { background:#1e2126; }
+  tbody tr:nth-child(even) td:first-child { background:#23272e; }
+  tbody tr:hover td:first-child { background:#2b3340; }
+  .colctrl { background:#20242b; border-color:#333a44; }
+  .colctrl summary { color:#cdd6e2; }
+  .colctrl button { background:#2a2f37; color:#e6e6e6; border-color:#444; }
 }
 """
 
@@ -149,7 +172,7 @@ def _fmt(v):
     return str(v)
 
 
-def _group_cell(row, srcs) -> str:
+def _group_cell(row, srcs, anchor) -> str:
     """多時窗合併格：今(粗)→10→20→60(小灰)依序堆疊，各自紅正綠負；缺值顯示—。"""
     def span(col, cls):
         v = row[col] if col in row.index else None
@@ -158,7 +181,16 @@ def _group_cell(row, srcs) -> str:
         color = _UP if v > 0 else (_DOWN if v < 0 else "#888")
         return f'<span class="{cls}" style="color:{color}">{v:+,.0f}</span>'
     parts = [span(col, "tv" if i == 0 else "dv") for i, (col, _) in enumerate(srcs)]
-    return f'<td class="pair">{"".join(parts)}</td>'
+    return f'<td class="pair" data-col="{anchor}">{"".join(parts)}</td>'
+
+
+def _shown_cols(df, cols):
+    """一張表實際會顯示的欄（套用 MERGE 隱藏來源欄邏輯）；供欄位開關面板列舉。"""
+    hide = set()
+    for anchor, (_, srcs) in MERGE_GROUPS.items():
+        if anchor in df.columns:
+            hide.update(col for col, _ in srcs if col != anchor)
+    return [c for c in cols if c in df.columns and c not in hide]
 
 
 def _table(df: pd.DataFrame, cols, signed_cols) -> str:
@@ -171,15 +203,15 @@ def _table(df: pd.DataFrame, cols, signed_cols) -> str:
     head = ""
     for c in cols:
         if c in MERGE_GROUPS and c in df.columns:
-            head += f'<th>{MERGE_GROUPS[c][0]}<small>{_GROUP_HEAD}</small></th>'
+            head += f'<th data-col="{c}">{MERGE_GROUPS[c][0]}<small>{_GROUP_HEAD}</small></th>'
         else:
-            head += f"<th>{label(c)}</th>"
+            head += f'<th data-col="{c}">{label(c)}</th>'
     body = ""
     for _, row in df.iterrows():
         tds = ""
         for c in cols:
             if c in MERGE_GROUPS and c in df.columns:
-                tds += _group_cell(row, MERGE_GROUPS[c][1])
+                tds += _group_cell(row, MERGE_GROUPS[c][1], c)
                 continue
             v = row[c]
             style = ""
@@ -188,7 +220,7 @@ def _table(df: pd.DataFrame, cols, signed_cols) -> str:
                     style = f"color:{_UP};font-weight:600"
                 elif v < 0:
                     style = f"color:{_DOWN};font-weight:600"
-            tds += f'<td style="{style}">{_fmt(v)}</td>'
+            tds += f'<td data-col="{c}" style="{style}">{_fmt(v)}</td>'
         body += f"<tr>{tds}</tr>"
     return f'<div class="tblwrap"><table><thead><tr>{head}</tr></thead><tbody>{body}</tbody></table></div>'
 
@@ -252,6 +284,43 @@ def _regime_class(reg: dict) -> str:
     return "reg-neutral"
 
 
+def _colctrl(blocks) -> str:
+    """欄位顯示開關面板：列出全報告會出現的欄，勾掉即隱藏（localStorage 記住跨日）。
+
+    代號/名稱固定不列（不讓使用者不小心把辨識欄關掉）。
+    """
+    seen, items = set(), []
+    for b in blocks:
+        df = b.get("df")
+        if df is None or getattr(df, "empty", True):
+            continue
+        for c in _shown_cols(df, b["cols"]):
+            if c in ("stock_id", "name") or c in seen:
+                continue
+            seen.add(c)
+            txt = (MERGE_GROUPS[c][0] + "今/10/20/60") if c in MERGE_GROUPS else label(c)
+            items.append(f'<label><input type="checkbox" checked data-col="{c}" '
+                         f'onchange="tc(this)">{txt}</label>')
+    if not items:
+        return ""
+    return ('<details class="colctrl"><summary>🔧 欄位顯示（勾掉不想看的欄，全報告即時套用、下次開報告會記住）</summary>'
+            f'<div class="cols">{"".join(items)}</div>'
+            '<div class="btns"><button onclick="allCols(true)">全部顯示</button>'
+            '<button onclick="allCols(false)">全部隱藏</button></div></details>')
+
+
+_COLCTRL_JS = """
+<script>
+var LSK='twreport_hiddenCols';
+function _apply(name,show){document.querySelectorAll('[data-col="'+name+'"]').forEach(function(e){e.style.display=show?'':'none';});}
+function _save(){var h=[];document.querySelectorAll('.colctrl input[type=checkbox]').forEach(function(cb){if(!cb.checked)h.push(cb.dataset.col);});try{localStorage.setItem(LSK,JSON.stringify(h));}catch(e){}}
+function tc(cb){_apply(cb.dataset.col,cb.checked);_save();}
+function allCols(show){document.querySelectorAll('.colctrl input[type=checkbox]').forEach(function(cb){cb.checked=show;_apply(cb.dataset.col,show);});_save();}
+(function(){var h=[];try{h=JSON.parse(localStorage.getItem(LSK)||'[]');}catch(e){}
+ document.querySelectorAll('.colctrl input[type=checkbox]').forEach(function(cb){if(h.indexOf(cb.dataset.col)>=0){cb.checked=false;_apply(cb.dataset.col,false);}});})();
+</script>"""
+
+
 def build(today, reg, glob_lines, sox, blocks, intersection=None,
           followthrough=None, ftstats=None) -> str:
     from .regime import summary_line
@@ -296,7 +365,7 @@ def build(today, reg, glob_lines, sox, blocks, intersection=None,
 <title>台股每日整合報告 {today}</title><style>{_CSS}</style></head>
 <body><div class="wrap">
 <h1>台股每日整合報告</h1><div class="sub">{today}　·　研究用途，非投資建議</div>
-{banner}{body}
+{banner}{_colctrl(blocks)}{body}
 <p class="note" style="margin-top:18px">{GLOSSARY}</p>
 <div class="disclaimer">⚠️ 本報告為候選觀察名單，非投資建議。紅漲綠跌為台股慣例。</div>
-</div></body></html>"""
+</div>{_COLCTRL_JS}</body></html>"""

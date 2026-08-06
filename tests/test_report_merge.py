@@ -40,8 +40,8 @@ def test_group_source_cols_covers_all_windows():
 def test_html_table_merges_five_cells():
     df = pd.DataFrame([_row()])
     html = rh._table(df, _COLS, signed_cols=[])
-    # 今日等來源欄併入 anchor → 表頭剩 代號/名稱 + 5 個法人資券欄 = 7
-    assert html.count("<th>") == 7
+    # 今日等來源欄併入 anchor → 表頭剩 代號/名稱 + 5 個法人資券欄 = 7（th 現帶 data-col 屬性）
+    assert html.count("<th ") == 7
     assert rh._GROUP_HEAD in html
     for v in ("+100", "+500", "+1,200", "-300"):   # 外資今/10/20/60
         assert v in html
