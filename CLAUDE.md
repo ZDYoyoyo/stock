@@ -61,8 +61,9 @@ trust_net/dealer_net/total_net`、`margin_balance/short_balance` 同理）。所
 ```bash
 python -m scripts.run_all                      # 一鍵全部（抓資料+選股+報告）
 python -m scripts.run_all --no-update          # 用現有資料，不重抓（測試用）
-python -m scripts.run_all --skip-longterm      # 略過較慢的長期軌（日常盤後用這個，省 FinMind 額度）
-python -m scripts.run_longterm                 # 長期價值軌單獨跑（每週一次即可）
+python -m scripts.run_all --skip-longterm      # 選用：想略過較慢的長期軌時（Sponsor 後已預設五軌日更）
+python -m scripts.run_longterm                 # 長期價值軌單獨跑
+python -m scripts.run_stock 1303 --days 30     # 個股籌碼深掘（單檔病歷表→reports/stock/）
 # 注意：沒有 --no-sync 這個參數
 python -m scripts.sync_data load               # 由 CSV 重建 stock.db
 ```
@@ -70,9 +71,9 @@ python -m scripts.sync_data load               # 由 CSV 重建 stock.db
 ✅ **已辦 FinMind Sponsor（2026-08，token 在環境變數 `FINMIND_TOKEN`）**：額度 6000/時、解鎖
 分點日報(`TaiwanStockTradingDailyReport`)＋千張大戶歷史(`TaiwanStockHoldingSharesPer`)＋借券已全市場落 DB。
 升級規劃與實作順序見 `docs/Sponsor升級規劃.md`。⚠️ 別用多帳號多 token 繞額度（違反 ToS，帳號可能被封）。
-- （歷史備註）免費 600/時常不夠：主燒在長期軌逐檔深掘，故曾預設 `--skip-longterm`＋長期軌拆週更
-  （`一鍵執行/4_更新長期價值(週更).bat`＝`scripts.run_longterm`）。Sponsor 6000/時後長期軌可回歸日更
-  （見規劃 [2]，尚未改回，待驗證額度後動）。
+- ✅**已回歸五軌日更**（2026-08，額度解放[2]）：盤後主按鈕＋`1_盤後選股.bat` 已移除 `--skip-longterm`，
+  長期軌併回每日。若日後嫌長期軌拖慢/無 edge，加回 `--skip-longterm` 即可（`run_longterm` 仍可單獨跑）。
+- （歷史備註）免費 600/時常不夠：主燒在長期軌逐檔深掘，故曾預設 `--skip-longterm`＋長期軌拆週更。
 
 ## 程式地圖（關鍵檔）
 
@@ -96,6 +97,10 @@ python -m scripts.sync_data load               # 由 CSV 重建 stock.db
 - `src/broker_signal.py` — 分點主力淨額＋隔日沖偵測 enrich(需 Sponsor)：`compute(ids, day, prev, vol_map)` 出
   「主力淨額(前15買超+前15賣超淨額)」＋「隔日沖賣壓%(昨日前15大買超分點今日轉淨賣量÷今日量→抓昨進今出大戶倒貨、
   補當沖比看不到的隔日沖盲區)」。逐檔 on-demand(每檔 T/T-1 各1 call)、僅對顯示候選(head 20/軌)。run_all 已接。
+- `src/stock_deepdive.py` + `scripts/run_stock.py` — **個股深掘([6])**：單檔『籌碼病歷表』(.md+.html)。
+  DB 拉齊價量/法人/資券/借券時間序列＋千張大戶週趨勢；分點(Sponsor)出逐日主力淨額/隔日沖賣壓%＋
+  **隔日沖常客名單**(窗內反覆昨買今賣的分點→這檔的隔日沖大戶)＋最新日 Top 買/賣分點。分點逐日單查(N日=N call)、
+  不落 DB。用法 `python -m scripts.run_stock 1303 --days 30`→`reports/stock/`。GUI「個股籌碼深掘」鈕＋`6_個股深掘.bat`。
 
 ## 回測框架（P1–P6，2026-07 量化顧問專案已建）
 
@@ -120,7 +125,7 @@ python -m scripts.sync_data load               # 由 CSV 重建 stock.db
 - `scripts/backfill_valuation.py` — 回補估值面板→`data/history/valuation_panel.csv.gz`（供長期價值軌）。
   月頻(每月首交易日)抓 TWSE BWIBBU_d 殖利率/PER/PBR，僅上市；`compute_longterm_entries` 用之。
 - `scripts/run_longterm_backtest.py` — 長期價值軌回測（月頻價值篩選 vs 買入持有/+regime）。
-- `tests/` — 74 個單元測試（signals／portfolio／T12前視／長期價值篩選／db 快取／定調7面向／借券enrich＋歷史增減／分點主力淨額＋隔日沖賣壓／T16 OOS純函式）；`python -m pytest tests/ -q`。
+- `tests/` — 79 個單元測試（signals／portfolio／T12前視／長期價值篩選／db 快取／定調7面向／借券enrich＋歷史增減／分點主力淨額＋隔日沖賣壓／個股深掘時間序列＋隔日沖常客／T16 OOS純函式）；`python -m pytest tests/ -q`。
 - 報告：`reports/signal_compare.md`、`reports/t16_tune.md`、`reports/portfolio_backtest.md`、`reports/oos_validation.md`、`reports/longterm_backtest.md`、`reports/t16_oos.md`。
 
 **指令**：
@@ -193,7 +198,7 @@ python -m scripts.run_t16_oos                          # T16 嚴格樣本外 wal
   run_all 每日累積，`compute_from_db` 出「借券賣出餘額(最新)＋借券增減(vs前日)」，+=法人加空/−=回補）；
   ✅**主力分點＋隔日沖賣壓%**（`broker_signal`：分點主力淨額＋昨日大買家今日倒貨的隔日沖偵測，補當沖比盲區；
   Sponsor 分點、逐檔 on-demand 僅對顯示候選、量大不落 DB；5 軌報告已加「主力淨額/隔日沖賣壓%」欄）。
-  待做：個股深掘工具([6]，分點歷史時間軸/隔日沖圖譜)；隔日沖訊號回測([8])。
+  ✅個股深掘([6]，`run_stock`：分點歷史時間軸/隔日沖常客名單/主力Top分點/借券大戶趨勢)。待做：隔日沖圖譜視覺化([7])；隔日沖訊號回測([8])。
 - **③ 回測驗證缺口**：✅長期價值軌已回測（無 edge）；✅T16 嚴格樣本外（walk-forward，
   run_t16_oos：OOS +37.9%/夏普1.11 小勝買入持有但回撤更深、逐折分散、edge 存活但脆弱）；
   待做：價值軌納配息年數/EPS 因子、上櫃估值(BWIBBU_d 僅上市)、T12 樣本外。

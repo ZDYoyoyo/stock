@@ -108,6 +108,14 @@ class Console:
         self._btn(p, "➕ 加回測檔數(只抓新股)", self.backfill_grow, "#eef4ff")
 
         self._section(p, "單軌 / 研究")
+        rowd = tk.Frame(p)
+        rowd.pack(fill="x", pady=1)
+        tk.Label(rowd, text="代號", font=FONT, width=4, anchor="w").pack(side="left")
+        self.stock_entry = tk.Entry(rowd, font=FONT, width=8)
+        self.stock_entry.insert(0, "1303")
+        self.stock_entry.pack(side="left")
+        tk.Label(rowd, text="填代號後按下方", font=("Microsoft JhengHei", 7), fg="#999").pack(side="left", padx=(3, 0))
+        self._btn(p, "🔬 個股籌碼深掘(病歷表)", self.deepdive, "#eef4ff")
         self._btn(p, "🚀 月營收動能T12", lambda: self.run(["scripts.run_t12"], "月營收動能"), "#e8fbef")
         self._btn(p, "🏦 主力籌碼排行", lambda: self.run(["scripts.run_mainforce"], "主力籌碼"), "#eef4ff")
         self._btn(p, "🟢 長期價值(單獨跑)", lambda: self.run(["scripts.run_longterm"], "長期價值"))
@@ -284,6 +292,14 @@ class Console:
             self.log("⚠️ 請在「檔數」欄填正整數（例如 300），再按此鍵。\n")
             return
         self.run(["scripts.backfill_history", "--universe", n, "--only-new"], f"加回測檔數→前{n}")
+
+    def deepdive(self):
+        """個股籌碼深掘：輸入代號 → 產出籌碼病歷表(.md/.html)。代號取自「代號」欄。"""
+        sid = (self.stock_entry.get() or "").strip()
+        if not sid:
+            self.log("⚠️ 請在「代號」欄填股票代號（例如 1303），再按此鍵。\n")
+            return
+        self.run(["scripts.run_stock", sid], f"個股深掘 {sid}")
 
     def run(self, args, name):
         if self.proc and self.proc.poll() is None:

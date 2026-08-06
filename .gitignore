@@ -14,6 +14,7 @@ data/history/*
 # 持股清單納入 git 同步（跨設備 + 雲端排程可見）；私有 repo 僅你可見
 !data/portfolio.csv
 reports/screener/
+reports/stock/
 .venv/
 # Shioaji SDK 登入時自動產生的日誌，不入庫
 shioaji.log
