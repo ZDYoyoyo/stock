@@ -87,7 +87,6 @@ scripts/
   run_t12.py           # 🚀 T12 月營收動能股
   run_mainforce.py     # 🏦 主力籌碼綜合（--stocks 看單檔；分點自動加值）
   run_landmine.py      # 🧨 地雷偵測（見上）
-  run_short_backtest.py / run_trigger_backtest.py  # 地雷放空 & 觸發器回測
   run_longterm.py      # 長期軌選股
   update_holders.py    # 千張大戶更新（每週跑，累積趨勢）
   risk_calc.py         # 風控試算（停損/停利/張數）
@@ -99,7 +98,7 @@ scripts/
 docs/
   功能說明.md          # 所有模組白話解釋
   指令手冊.md          # 所有指令怎麼跑
-  run_t11.py / run_t30.py / run_backtest.py / run_validation.py / run_edge_check.py
+  run_t11.py / run_t30.py（回測改用組合框架 run_portfolio_backtest / run_signal_compare，見 CLAUDE.md）
 ```
 
 ## 四、模組完成度
@@ -122,12 +121,16 @@ pip install -r requirements.txt
 python -m scripts.update_data --days 40     # 抓資料
 python -m scripts.daily_scan                # 每日掃描（推薦，含市場廣度）
 python -m scripts.run_t30                   # 短名單補基本面
-python -m scripts.run_backtest --stocks 2206,6669   # 回測測試
+python -m scripts.run_signal_compare        # 回測（離線比訊號，秒出不燒額度）
 ```
 門檻都在 `src/config.py`。排程說明見 README「每日自動掃描排程」。
 
 ## ★ 回測關鍵發現（2026-07-19 更新，很重要）
-**正式回測**：DB 流動性前 **100 檔**、2022-01-01~2026-07（含成本，run_full_backtest）：
+> 📌 以下三份為**早期事件研究式回測**（舊腳本 run_full/short/trigger_backtest 已退役、
+> 由組合層級新框架 `run_portfolio_backtest`/`run_signal_compare` 取代，見 `CLAUDE.md`）。
+> 結論仍具參考價值，故保留；重跑請用新框架。
+
+**正式回測**：DB 流動性前 **100 檔**、2022-01-01~2026-07（含成本，早期事件回測）：
 
 | 持有 | 基準(任意日) | A法人連買 | D組合(連買+抗跌+營收) | A超額 | D超額 |
 |---|---|---|---|---|---|
@@ -147,7 +150,7 @@ python -m scripts.run_backtest --stocks 2206,6669   # 回測測試
    限制：2022~ 非樣本外、未計滑價，屬方向性驗證。
 
 ## ★ 地雷放空回測發現（2026-07-20，重要）
-80 檔、2022~2026、成本後放空報酬（run_short_backtest，報告 reports/short_backtest_validation.md）：
+80 檔、2022~2026、成本後放空報酬（早期事件回測，腳本已退役）：
 
 | 持有 | 任意日放空基準 | L 地雷 | L+弱(破線) | L+強(價還強) |
 |---|---|---|---|---|
@@ -167,7 +170,7 @@ python -m scripts.run_backtest --stocks 2206,6669   # 回測測試
 → 實務更難：未計融券利息/券源/強制回補/滑價，真實還會更差。
 
 ## ★ 觸發器甜蜜點回測發現（2026-07-20，反直覺，重要）
-80檔、628個地雷事件、成本後放空報酬（run_trigger_backtest，報告 trigger_backtest_validation.md）：
+80檔、628個地雷事件、成本後放空報酬（早期事件回測，腳本已退役）：
 
 | 觸發器 | 延遲天 | 20天 | 40天 |
 |---|---|---|---|
@@ -191,7 +194,7 @@ python -m scripts.run_backtest --stocks 2206,6669   # 回測測試
 - 替代：可用既有免費籌碼（三大法人+千張大戶+融資）組「主力籌碼綜合」達到類似意圖（待使用者決定）。
 
 ## 六、下一步 (TODO)
-1. ✅ **T23 完整回測（已完成 2026-07-19）**：run_full_backtest 用 FinMind 逐檔抓 2022~ 歷史
+1. ✅ **T23 完整回測（已完成 2026-07-19）**：早期事件回測用 FinMind 逐檔抓 2022~ 歷史
    （不需回補全市場 DB），100 檔驗證完畢，結論見上「回測關鍵發現」。
    已定論：單靠「法人連買」負超額，需疊加抗跌+基本面且持有數週才有 edge。
 2. 其他 backlog（未做，可挑）：
