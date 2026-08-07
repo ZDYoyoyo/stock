@@ -70,6 +70,12 @@ CREATE TABLE IF NOT EXISTS sbl (
     sbl_balance INTEGER,      -- 借券賣出餘額（張，法人真實空單；股÷1000）
     PRIMARY KEY (date, stock_id)
 );
+CREATE TABLE IF NOT EXISTS broker_net (
+    -- 分點淨買超快取（本機加速用，不進 git CSV：全市場量大、雲端有額度重抓即可）。
+    date TEXT, stock_id TEXT,
+    nets TEXT,                -- {分點:淨買張} 的 JSON（聚合後全保真，下游只用此 dict）
+    PRIMARY KEY (date, stock_id)
+);
 """
 
 

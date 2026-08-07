@@ -50,6 +50,12 @@ def _update(days: int):
                        cwd=str(ROOT), check=False)
     except Exception as e:
         print(f"[更新] 借券累積略過：{e}")
+    # 修剪分點本機快取，控制大小（只留近 60 交易日；不影響雲端無快取的重抓）
+    try:
+        from src.broker_signal import prune_cache
+        prune_cache(keep_days=60)
+    except Exception as e:
+        print(f"[更新] 分點快取修剪略過：{e}")
 
 
 def _asof_note(df, kind):

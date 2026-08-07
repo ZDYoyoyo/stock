@@ -97,14 +97,17 @@ python -m scripts.sync_data load               # 由 CSV 重建 stock.db
   **日期標籤與 pct 標準跟 TDCC 完全一致→無縫併入**。⚠️日更仍走**免費 TDCC**(`update_holders`，掉回免費照跑)；
   這支只補歷史深度。跑後 `sync_data dump` 寫回 CSV(進 git)。用途：`enrich.big_holder_change_map` 千張週增減欄＋個股深掘大戶曲線。
 - `src/broker_client.py` — 券商分點日報 client(`TaiwanStockTradingDailyReport`, Sponsor)：`available()` 偵測、
-  `branch_summary` 主力買賣超摘要。⚠️分點僅**單日**查(`end_date` 需 none/等於 start)、量大**不落 DB**。
+  `branch_summary` 主力買賣超摘要。⚠️分點僅**單日**查(`end_date` 需 none/等於 start)、**原始上萬列/檔不落 DB**。
 - `src/broker_signal.py` — 分點主力淨額＋隔日沖偵測 enrich(需 Sponsor)：`compute(ids, day, prev, vol_map)` 出
   「主力淨額(前15買超+前15賣超淨額)」＋「隔日沖賣壓%(昨日前15大買超分點今日轉淨賣量÷今日量→抓昨進今出大戶倒貨、
   補當沖比看不到的隔日沖盲區)」。逐檔 on-demand(每檔 T/T-1 各1 call)、僅對顯示候選(head 20/軌)。run_all 已接。
+  🚀**分點本機快取**：`_branch_net` 把聚合後 `{分點:淨}` 存 DB `broker_net`(JSON、**全保真、快取＝實算相同**)，
+  同檔日重用免重抓(實測 1100x：1.4s→0.001s；今=明的昨、深掘重跑同檔、回測全受益)。⚠️**本機加速用不進 git CSV**
+  (全市場一年 ~1GB 太大；雲端無快取有額度重抓即可)。`prune_cache(keep_days=60)` run_all `_update` 每日修剪控大小。
 - `src/stock_deepdive.py` + `scripts/run_stock.py` — **個股深掘([6])**：單檔『籌碼病歷表』(.md+.html)。
   DB 拉齊價量/法人/資券/借券時間序列＋千張大戶週趨勢；分點(Sponsor)出逐日主力淨額/隔日沖賣壓%＋
   **隔日沖常客名單**(窗內反覆昨買今賣的分點→這檔的隔日沖大戶)＋最新日 Top 買/賣分點。分點逐日單查(N日=N call)、
-  不落 DB。用法 `python -m scripts.run_stock 1303 --days 30`→`reports/stock/`。GUI「個股籌碼深掘」鈕＋`6_個股深掘.bat`。
+  **走 broker_net 本機快取**(重跑同檔幾乎免抓)。用法 `python -m scripts.run_stock 1303 --days 30`→`reports/stock/`。GUI「個股籌碼深掘」鈕＋`6_個股深掘.bat`。
 
 ## 回測框架（P1–P6，2026-07 量化顧問專案已建）
 
@@ -129,7 +132,7 @@ python -m scripts.sync_data load               # 由 CSV 重建 stock.db
 - `scripts/backfill_valuation.py` — 回補估值面板→`data/history/valuation_panel.csv.gz`（供長期價值軌）。
   月頻(每月首交易日)抓 TWSE BWIBBU_d 殖利率/PER/PBR，僅上市；`compute_longterm_entries` 用之。
 - `scripts/run_longterm_backtest.py` — 長期價值軌回測（月頻價值篩選 vs 買入持有/+regime）。
-- `tests/` — 82 個單元測試（signals／portfolio／T12前視／長期價值篩選／db 快取／定調7面向／借券enrich＋歷史增減／分點主力淨額＋隔日沖賣壓／個股深掘時間序列＋隔日沖常客／T16 OOS純函式／千張大戶分級聚合）；`python -m pytest tests/ -q`。
+- `tests/` — 85 個單元測試（signals／portfolio／T12前視／長期價值篩選／db 快取／定調7面向／借券enrich＋歷史增減／分點主力淨額＋隔日沖賣壓／分點本機快取／個股深掘時間序列＋隔日沖常客／T16 OOS純函式／千張大戶分級聚合）；`python -m pytest tests/ -q`。
 - 報告：`reports/signal_compare.md`、`reports/t16_tune.md`、`reports/portfolio_backtest.md`、`reports/oos_validation.md`、`reports/longterm_backtest.md`、`reports/t16_oos.md`。
 
 **指令**：

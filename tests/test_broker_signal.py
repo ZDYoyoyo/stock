@@ -8,8 +8,17 @@ from pathlib import Path
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 
 import pandas as pd
+import pytest
 
 from src import broker_signal as brk
+
+
+@pytest.fixture(autouse=True)
+def _isolate_broker_cache(monkeypatch, tmp_path):
+    """每測用 tmp DB 隔離分點快取：避免假日期(DAY/PREV)寫入真 DB 或跨測互污染。"""
+    from src import db
+    monkeypatch.setattr(db, "DB_PATH", str(tmp_path / "t.db"))
+    monkeypatch.setattr(brk, "_cache_ready", False)
 
 
 def _rows(nets: dict):

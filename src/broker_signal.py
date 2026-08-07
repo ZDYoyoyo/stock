@@ -11,16 +11,78 @@
 """
 from __future__ import annotations
 
+import json
+
 import pandas as pd
 
 from . import broker_client as bc
+from .db import connect
 
 _TOP = 15   # 主力＝前幾大分點（對齊 broker_client._TOP_BRANCHES）
 _COLS = ["stock_id", "主力淨額", "隔日沖賣壓%"]
 
+# 分點淨額本機快取（DB broker_net 表）：全市場單日量大（原始上萬列/檔）、下載慢，
+# 同一檔日常被 run_all(今=明的昨)／個股深掘(重跑同檔)／回測反覆用 → 存聚合後 {分點:淨}
+# 的 JSON(全保真、快取＝實算相同)。⚠️本機加速用，不進 git CSV(見 db.broker_net 註)。
+_cache_ready = False
+
+
+def _ensure_cache():
+    global _cache_ready
+    if not _cache_ready:
+        from . import db
+        db.init_db()                    # 冪等：確保 broker_net 表存在（含舊 DB）
+        _cache_ready = True
+
+
+def _cache_get(sid: str, date: str) -> dict | None:
+    """命中回 {分點:淨}；未命中/表不存在回 None。"""
+    try:
+        _ensure_cache()
+        with connect() as conn:
+            row = conn.execute(
+                "SELECT nets FROM broker_net WHERE date=? AND stock_id=?", (date, sid)
+            ).fetchone()
+    except Exception:
+        return None
+    if row and row[0]:
+        try:
+            return json.loads(row[0])
+        except Exception:
+            return None
+    return None
+
+
+def _cache_put(sid: str, date: str, net: dict) -> None:
+    try:
+        _ensure_cache()
+        with connect() as conn:
+            conn.execute("INSERT OR REPLACE INTO broker_net(date, stock_id, nets) VALUES(?,?,?)",
+                         (date, sid, json.dumps(net, ensure_ascii=False)))
+    except Exception:
+        pass                            # 快取失敗不影響主流程
+
+
+def prune_cache(keep_days: int = 60) -> None:
+    """只保留近 keep_days 個分點日期，控制本機快取大小（run_all 每日呼叫一次）。"""
+    try:
+        with connect() as conn:
+            dates = [r[0] for r in conn.execute(
+                "SELECT DISTINCT date FROM broker_net ORDER BY date DESC").fetchall()]
+            if len(dates) > keep_days:
+                conn.execute("DELETE FROM broker_net WHERE date < ?", (dates[keep_days - 1],))
+    except Exception:
+        pass
+
 
 def _branch_net(sid: str, date: str) -> dict:
-    """{分點: 今日淨買張}（buy−sell，股÷1000→張）。不可用/無資料回 {}。"""
+    """{分點: 今日淨買張}（buy−sell，股÷1000→張）。先讀本機快取，未命中才抓並回填。
+
+    不可用/無資料回 {}（且不快取——可能暫時性失敗/假日，避免鎖成空）。
+    """
+    cached = _cache_get(sid, date)
+    if cached is not None:
+        return cached
     rows = bc._raw(sid, date)
     if not rows:
         return {}
@@ -28,6 +90,7 @@ def _branch_net(sid: str, date: str) -> dict:
     for d in rows:
         name = d.get("securities_trader") or d.get("securities_trader_id") or "?"
         net[name] = net.get(name, 0) + (d.get("buy", 0) - d.get("sell", 0)) / 1000
+    _cache_put(sid, date, net)
     return net
 
 
