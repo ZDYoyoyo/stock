@@ -65,6 +65,23 @@ def chip_timeline(sid: str, days: int = 30) -> pd.DataFrame:
     return df.tail(days).reset_index(drop=True)
 
 
+def daytrade_timeline(sid: str, tl: pd.DataFrame) -> pd.DataFrame:
+    """近窗當沖比%（DB day_trade 的當沖量 ÷ tl 的量）。無資料回空。"""
+    if tl is None or tl.empty or "量" not in tl.columns:
+        return pd.DataFrame()
+    with connect() as c:
+        dt = pd.read_sql("SELECT date, dt_vol FROM day_trade WHERE stock_id=? ORDER BY date",
+                         c, params=(sid,))
+    if dt.empty:
+        return pd.DataFrame()
+    m = tl[["date", "量"]].merge(dt, on="date", how="inner")
+    m = m[m["量"] > 0]
+    if m.empty:
+        return pd.DataFrame()
+    m["當沖比%"] = (m["dt_vol"] / m["量"] * 100).round(1)
+    return m[["date", "當沖比%"]].reset_index(drop=True)
+
+
 def holder_trend(sid: str) -> pd.DataFrame:
     """千張大戶% 週趨勢（DB big_holders，週頻）。無資料回空。"""
     with connect() as c:

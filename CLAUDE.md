@@ -109,9 +109,11 @@ python -m scripts.sync_data load               # 由 CSV 重建 stock.db
   同檔日重用免重抓(實測 1100x：1.4s→0.001s；今=明的昨、深掘重跑同檔、回測全受益)。⚠️**本機加速用不進 git CSV**
   (全市場一年 ~1GB 太大；雲端無快取有額度重抓即可)。`prune_cache(keep_days=60)` run_all `_update` 每日修剪控大小。
 - `src/stock_deepdive.py` + `scripts/run_stock.py` — **個股深掘([6])**：單檔『籌碼病歷表』(.md+.html)。
-  DB 拉齊價量/法人/資券/借券時間序列＋千張大戶週趨勢；分點(Sponsor)出逐日主力淨額/隔日沖賣壓%＋
+  DB 拉齊價量/法人/資券/借券時間序列＋千張大戶週趨勢＋當沖比時間序列(`daytrade_timeline`)；分點(Sponsor)出逐日主力淨額/隔日沖賣壓%＋
   **隔日沖常客名單**(窗內反覆昨買今賣的分點→這檔的隔日沖大戶)＋最新日 Top 買/賣分點。分點逐日單查(N日=N call)、
-  **走 broker_net 本機快取**(重跑同檔幾乎免抓)。用法 `python -m scripts.run_stock 1303 --days 30`→`reports/stock/`。GUI「個股籌碼深掘」鈕＋`6_個股深掘.bat`。
+  **走 broker_net 本機快取**(重跑同檔幾乎免抓)。HTML 另有 **📈圖譜([7])**：收盤/主力淨額/隔日沖賣壓%/當沖比%/借券/大戶
+  的內嵌 SVG 迷你圖(`src/svgchart.py`，自足無外部庫、紅正綠負、tooltip)。用法 `python -m scripts.run_stock 1303 --days 30`→`reports/stock/`。GUI「個股籌碼深掘」鈕＋`6_個股深掘.bat`。
+- `src/svgchart.py` — 極簡 inline SVG 迷你圖(`bars` 長條/紅正綠負、`line` 折線)：純 SVG+<title> tooltip、CSP-safe、明暗皆清楚。供深掘圖譜用。
 
 ## 回測框架（P1–P6，2026-07 量化顧問專案已建）
 
@@ -136,7 +138,7 @@ python -m scripts.sync_data load               # 由 CSV 重建 stock.db
 - `scripts/backfill_valuation.py` — 回補估值面板→`data/history/valuation_panel.csv.gz`（供長期價值軌）。
   月頻(每月首交易日)抓 TWSE BWIBBU_d 殖利率/PER/PBR，僅上市；`compute_longterm_entries` 用之。
 - `scripts/run_longterm_backtest.py` — 長期價值軌回測（月頻價值篩選 vs 買入持有/+regime）。
-- `tests/` — 89 個單元測試（signals／portfolio／T12前視／長期價值篩選／db 快取／定調7面向／借券enrich＋歷史增減／分點主力淨額＋隔日沖賣壓／分點本機快取／當沖比熱度趨勢／個股深掘時間序列＋隔日沖常客／T16 OOS純函式／千張大戶分級聚合）；`python -m pytest tests/ -q`。
+- `tests/` — 94 個單元測試（signals／portfolio／T12前視／長期價值篩選／db 快取／定調7面向／借券enrich＋歷史增減／分點主力淨額＋隔日沖賣壓／分點本機快取／當沖比熱度趨勢／個股深掘時間序列＋隔日沖常客／SVG迷你圖／T16 OOS純函式／千張大戶分級聚合）；`python -m pytest tests/ -q`。
 - 報告：`reports/signal_compare.md`、`reports/t16_tune.md`、`reports/portfolio_backtest.md`、`reports/oos_validation.md`、`reports/longterm_backtest.md`、`reports/t16_oos.md`。
 
 **指令**：
@@ -196,7 +198,7 @@ python -m scripts.run_t16_oos                          # T16 嚴格樣本外 wal
 
 ## 待辦／擱置中（使用者知道，尚未動工）
 
-- 迷你趨勢圖（sparkline）、顏色深淺熱力圖 —— 使用者當時未選，擱置。
+- ✅迷你趨勢圖（sparkline）—— 已於個股深掘 HTML 圖譜([7])做（`svgchart`）；顏色深淺熱力圖仍擱置。
 - MD/HTML **顯示列數**落差（T11/當沖：HTML 19–20 列 vs MD 15 列）；欄位一致、僅列數不同。
 
 ### 📌 2026-08 Sponsor 升級 session 收尾（下次接手看這裡）
@@ -204,8 +206,9 @@ FinMind Sponsor 已辦，規劃見 `docs/Sponsor升級規劃.md`。本 session �
 - [0] 借券歷史落 DB＋借券增減趨勢欄；[2] 額度解放(五軌回歸日更)；[4] 主力淨額欄；
   [5] 隔日沖賣壓%欄；[6] 個股深掘 `run_stock`；[8] 隔日沖回測(單獨≈無 edge，見結論)。
 - 另：HTML 報告可隱藏欄位＋表頭/首欄固定（`report_html._colctrl`/sticky）。
-- **狀態＝先實戰跑幾天觀察**（新欄＋個股深掘實用性），再決定是否做 **[7] 深掘進階**
-  （隔日沖圖譜視覺化／特定分點追蹤／當沖比時間軸）——[7] 是唯一剩項，錦上添花、非必要。
+- **狀態＝先實戰跑幾天觀察**（新欄＋個股深掘實用性）。
+- **[7] 深掘進階已完成**（2026-08 後續 session）：當沖比熱度趨勢欄＋個股深掘 📈圖譜(SVG 迷你圖)。
+  唯一還可延伸：特定分點追蹤、顏色熱力圖——皆錦上添花、非必要，roadmap 主線已清空。
 - 若嫌長期軌拖慢：加回 `--skip-longterm`（gui 主按鈕＋`1_盤後選股.bat`）即可。
 
 ### 報告增強 roadmap（2026-07 盤點，報告欄位已很完整，瓶頸在「把資料變行動」）
@@ -227,7 +230,9 @@ FinMind Sponsor 已辦，規劃見 `docs/Sponsor升級規劃.md`。本 session �
   (次日−1.6%)才預告偏空**；對照主力淨額方向性略強(淨買隔日+0.81%/淨賣−0.60%)但仍弱。報告 `reports/daytrade_signal_backtest.md`。
   ✅**當沖比熱度趨勢([7]一部分，`backfill_daytrade`+`day_trade_signal.trend`)**：當沖量落 DB `day_trade`
   (免費 TWSE+TPEX、每日累積)，當沖軌加「當沖比均5日＋當沖比趨勢(🔥升溫/❄降溫)」→ 挑正在升溫的妖股 arena
-  (熱度訊號、非多空方向、非 alpha)。待做：隔日沖圖譜視覺化([7])。
+  (熱度訊號、非多空方向、非 alpha)。
+  ✅**個股深掘圖譜視覺化([7]完成)**：深掘 HTML 加 📈圖譜區塊(`svgchart` 內嵌 SVG 迷你圖)——收盤/主力淨額(紅買綠賣)/
+  隔日沖賣壓%/當沖比%/借券餘額/千張大戶% 六張走勢圖，自足無外部庫、tooltip 看數值。**[7] 全數完成、roadmap 清空**。
 - **③ 回測驗證缺口**：✅長期價值軌已回測（無 edge）；✅T16 嚴格樣本外（walk-forward，
   run_t16_oos：OOS +37.9%/夏普1.11 小勝買入持有但回撤更深、逐折分散、edge 存活但脆弱）；
   待做：價值軌納配息年數/EPS 因子、上櫃估值(BWIBBU_d 僅上市)、T12 樣本外。

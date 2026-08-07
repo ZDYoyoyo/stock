@@ -19,7 +19,53 @@ import pandas as pd
 
 from src import stock_deepdive as dd
 from src import report_html as rh
+from src import svgchart as sc
 from src.config import OUTPUT_DIR
+
+# 圖譜區塊樣式（明暗皆清楚；接在 rh._CSS 後）
+_CHART_CSS = """
+.chgrid{display:grid;grid-template-columns:repeat(auto-fit,minmax(300px,1fr));gap:12px;margin:10px 0 6px}
+.chblk{border:1px solid #d5dbe4;border-radius:8px;padding:8px 10px;background:#fff}
+.chttl{font-size:13px;font-weight:600;color:#2c3e50;margin-bottom:4px}
+.chcap{font-size:11px;color:#777;margin-top:2px}
+@media (prefers-color-scheme: dark){.chblk{background:#1e2126;border-color:#333a44}.chttl{color:#cdd6e0}}
+"""
+
+
+def _charts(tl, bt, dtl, ht) -> str:
+    """組『圖譜』區塊：只放有資料的迷你圖（收盤/主力淨額/隔日沖賣壓%/當沖比%/借券/大戶）。"""
+    blocks = []
+
+    def blk(title, svg, cap=""):
+        c = f'<div class="chcap">{cap}</div>' if cap else ""
+        blocks.append(f'<div class="chblk"><div class="chttl">{title}</div>{svg}{c}</div>')
+
+    d = list(tl["date"])
+    blk("收盤價", sc.line(list(tl["收盤"]), d, unit="", fmt="{:,.2f}", color="#2d7ef7"),
+        "藍線＝收盤，對照下列籌碼變化發生在什麼價位")
+    if bt is not None and not bt.empty:
+        bd = list(bt["date"])
+        blk("主力淨額（逐日·紅買綠賣）",
+            sc.bars(list(bt["主力淨額"]), bd, signed=True, unit=" 張"),
+            "前15買超＋前15賣超分點淨額：紅=主力淨買、綠=淨賣")
+        if "隔日沖賣壓%" in bt.columns:
+            blk("隔日沖賣壓%（逐日）", sc.bars(list(bt["隔日沖賣壓%"]), bd, unit="%", fmt="{:,.1f}"),
+                "昨日大買家今日倒貨量佔比：柱越高＝隔日沖倒貨越兇（隔天常殺低⚠️）")
+    if dtl is not None and not dtl.empty:
+        blk("當沖比%（逐日）", sc.line(list(dtl["當沖比%"]), list(dtl["date"]), unit="%",
+                                     fmt="{:,.1f}", color="#e67e22"),
+            "當沖量÷總量：越高＝當沖客對殺越熱（妖股特徵）")
+    if "借券餘額" in tl.columns and tl["借券餘額"].notna().any():
+        blk("借券賣出餘額（法人空單）", sc.line(list(tl["借券餘額"]), d, unit=" 張", fmt="{:,.0f}",
+                                          color="#8e44ad"),
+            "法人真實空單餘額：升＝加空、降＝回補（潛在買盤）")
+    if ht is not None and not ht.empty:
+        blk("千張大戶%（週頻）", sc.line(list(ht["千張大戶%"]), list(ht["date"]), unit="%",
+                                     fmt="{:,.2f}", color="#158a4e"),
+            "≥1000張大戶持股比：升＝籌碼沉澱、降＝派發給散戶")
+    if not blocks:
+        return ""
+    return f'<h2>📈 圖譜（滑鼠移到點/柱看數值）</h2><div class="chgrid">{"".join(blocks)}</div>'
 
 # 各表的「有正負、要上色」欄（紅正綠負，台股慣例）
 _SIGNED = {"漲跌%", "外資", "投信", "自營", "融資增減", "融券增減", "借券增減",
@@ -106,6 +152,7 @@ def main():
     day = tl["date"].iloc[-1]
     buy, sell = dd.top_branches(sid, day)
     ht = dd.holder_trend(sid)
+    dtl = dd.daytrade_timeline(sid, tl)
     has_broker = not bt.empty
     print(f"   分點：{'可用' if has_broker else '不可用(需 Sponsor)'}")
 
@@ -119,6 +166,9 @@ def main():
     md.append("## 📌 近況摘要")
     for ln in _summary(sid, meta, tl, bt, reg):
         md.append(f"- {ln}")
+    md.append("\n## 📈 圖譜")
+    md.append("> 迷你走勢圖（收盤／主力淨額／隔日沖賣壓%／當沖比%／借券／大戶）請見同名 **.html**"
+              "（可滑鼠移上去看數值）；下列表格為同資料的逐日明細。\n")
     md.append(f"\n## 📊 近 {len(tl)} 交易日籌碼時間序列")
     md.append(_md_table(tl))
     md.append("## 🏦 分點主力淨額 + 隔日沖賣壓%（逐日）")
@@ -141,6 +191,7 @@ def main():
         return f"<h2>{h}</h2>{inner}"
     sm = "".join(f"<li>{ln}</li>" for ln in _summary(sid, meta, tl, bt, reg))
     body = f'<div class="banner reg-neutral">📌 近況摘要<small><ul class="ft">{sm}</ul></small></div>'
+    body += _charts(tl, bt, dtl, ht)
     body += sec(f"📊 近 {len(tl)} 交易日籌碼時間序列", _html_table(tl))
     body += sec("🏦 分點主力淨額 + 隔日沖賣壓%（逐日）",
                 _html_table(bt) if has_broker else "<p>（分點不可用；需 FinMind Sponsor）</p>")
@@ -152,7 +203,7 @@ def main():
     body += sec("🏦 千張大戶週趨勢", _html_table(ht))
     html = (f'<!doctype html><html lang="zh-Hant"><head><meta charset="utf-8">'
             f'<meta name="viewport" content="width=device-width, initial-scale=1">'
-            f'<title>{title}</title><style>{rh._CSS}</style></head><body><div class="wrap">'
+            f'<title>{title}</title><style>{rh._CSS}{_CHART_CSS}</style></head><body><div class="wrap">'
             f'<h1>{title}</h1><div class="sub">資料截至 {day}　·　研究用途，非投資建議</div>'
             f'{body}<p class="note" style="margin-top:18px">{_NOTE}</p></div></body></html>')
     base.with_suffix(".html").write_text(html, encoding="utf-8")
