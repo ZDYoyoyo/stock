@@ -25,6 +25,7 @@ _TABLES = {
     "margin": ["date", "stock_id"],
     "big_holders": ["date", "stock_id"],
     "sbl": ["date", "stock_id"],
+    "day_trade": ["date", "stock_id"],
     "stock_info": ["stock_id"],
 }
 

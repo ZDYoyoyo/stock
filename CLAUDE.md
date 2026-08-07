@@ -88,6 +88,10 @@ python -m scripts.sync_data load               # 由 CSV 重建 stock.db
 - `src/screeners/` — 各軌篩選器 + `landmine`(地雷偵測)。
 - `src/twse_client.py` / `src/tpex_client.py` — 官方資料 client（上市／上櫃）；含 `day_trade` 當沖統計。
 - `src/day_trade_signal.py` — 當沖比率% 併欄（妖股對殺偵測，TWSE+TPEX 官方當沖÷總量，免費）。
+  `fetch_market_day` 全市場單日→DB `day_trade` rows(供 backfill)；`trend(ids,n=5)` 讀 DB 歷史出
+  「當沖比均{n}日＋當沖比趨勢(🔥升溫/❄降溫/➖持平＝今日 vs 前n-1日均)」→ 挑正在升溫的妖股 arena(僅當沖軌加)。
+- `scripts/backfill_daytrade.py` — 回補當沖量歷史→DB `day_trade` 表(張)。逐日全市場(TWSE+TPEX 各1 call/交易日)、
+  逐日 commit 可續跑；`--days N` 增量。run_all `_update` 已自動接(每日累積)。dump 隨 `sync_data` 進 CSV(進 git)。
 - `src/sbl_signal.py` — 借券賣出餘額(法人真實空單)：`compute_from_db`(讀 DB sbl 歷史→借券賣出餘額+借券增減趨勢)
   優先；`compute`(逐檔 live 查) fallback；`fetch_market_day`(Sponsor 全市場單日→DB rows)。
 - `scripts/backfill_sbl.py` — 回補借券歷史→DB `sbl` 表(股÷1000→張)。逐日全市場(1 call/交易日)、逐日 commit
@@ -132,7 +136,7 @@ python -m scripts.sync_data load               # 由 CSV 重建 stock.db
 - `scripts/backfill_valuation.py` — 回補估值面板→`data/history/valuation_panel.csv.gz`（供長期價值軌）。
   月頻(每月首交易日)抓 TWSE BWIBBU_d 殖利率/PER/PBR，僅上市；`compute_longterm_entries` 用之。
 - `scripts/run_longterm_backtest.py` — 長期價值軌回測（月頻價值篩選 vs 買入持有/+regime）。
-- `tests/` — 85 個單元測試（signals／portfolio／T12前視／長期價值篩選／db 快取／定調7面向／借券enrich＋歷史增減／分點主力淨額＋隔日沖賣壓／分點本機快取／個股深掘時間序列＋隔日沖常客／T16 OOS純函式／千張大戶分級聚合）；`python -m pytest tests/ -q`。
+- `tests/` — 89 個單元測試（signals／portfolio／T12前視／長期價值篩選／db 快取／定調7面向／借券enrich＋歷史增減／分點主力淨額＋隔日沖賣壓／分點本機快取／當沖比熱度趨勢／個股深掘時間序列＋隔日沖常客／T16 OOS純函式／千張大戶分級聚合）；`python -m pytest tests/ -q`。
 - 報告：`reports/signal_compare.md`、`reports/t16_tune.md`、`reports/portfolio_backtest.md`、`reports/oos_validation.md`、`reports/longterm_backtest.md`、`reports/t16_oos.md`。
 
 **指令**：
@@ -221,7 +225,9 @@ FinMind Sponsor 已辦，規劃見 `docs/Sponsor升級規劃.md`。本 session �
   ✅**隔日沖訊號回測([8]，`backtest_daytrade`)**：1540樣本實測「隔日沖賣壓%」**單獨≈無 edge**（相關+0.002、
   分組不單調、最高組甚至微正）→ 只當情境警示欄，別單獨做隔日方向；**只有極端≥20%(次日−2.2%)或搭配當日走弱
   (次日−1.6%)才預告偏空**；對照主力淨額方向性略強(淨買隔日+0.81%/淨賣−0.60%)但仍弱。報告 `reports/daytrade_signal_backtest.md`。
-  待做：隔日沖圖譜視覺化([7])。
+  ✅**當沖比熱度趨勢([7]一部分，`backfill_daytrade`+`day_trade_signal.trend`)**：當沖量落 DB `day_trade`
+  (免費 TWSE+TPEX、每日累積)，當沖軌加「當沖比均5日＋當沖比趨勢(🔥升溫/❄降溫)」→ 挑正在升溫的妖股 arena
+  (熱度訊號、非多空方向、非 alpha)。待做：隔日沖圖譜視覺化([7])。
 - **③ 回測驗證缺口**：✅長期價值軌已回測（無 edge）；✅T16 嚴格樣本外（walk-forward，
   run_t16_oos：OOS +37.9%/夏普1.11 小勝買入持有但回撤更深、逐折分散、edge 存活但脆弱）；
   待做：價值軌納配息年數/EPS 因子、上櫃估值(BWIBBU_d 僅上市)、T12 樣本外。

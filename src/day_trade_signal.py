@@ -41,6 +41,55 @@ def compute(date_ymd: str | None = None) -> pd.DataFrame:
     return pd.DataFrame(rows, columns=["stock_id", "當沖比率%"])
 
 
+def fetch_market_day(date_iso: str) -> list[dict]:
+    """全市場某交易日當沖量 → [{date, stock_id, dt_vol(張)}]（供 backfill_daytrade 落 DB）。"""
+    ymd = date_iso.replace("-", "")
+    dt: dict = {}
+    for client in (tw, tp):
+        try:
+            dt.update(client.day_trade(ymd))
+        except Exception:
+            pass
+    return [{"date": date_iso, "stock_id": sid, "dt_vol": int(v)}
+            for sid, v in dt.items() if v is not None]
+
+
+def trend(stock_ids, n: int = 5) -> pd.DataFrame:
+    """當沖比熱度趨勢（讀 DB day_trade 歷史）：回 [stock_id, 當沖比均{n}日, 當沖比趨勢]。
+
+    當沖比趨勢＝今日 vs 前 n-1 日均：🔥升溫(今>均×1.2)／❄降溫(今<均×0.8)／➖持平。
+    （非多空方向，只表當沖熱度升降——升溫＝資金/妖股湧入、波動加大。）資料不足回空。
+    """
+    cols = ["stock_id", f"當沖比均{n}日", "當沖比趨勢"]
+    try:
+        px = read_table("price", use_cache=True)[["date", "stock_id", "volume"]]
+        dt = read_table("day_trade", use_cache=True)[["date", "stock_id", "dt_vol"]]
+    except Exception:
+        return pd.DataFrame(columns=cols)
+    if px.empty or dt.empty:
+        return pd.DataFrame(columns=cols)
+    ids = {str(s).strip() for s in stock_ids}
+    m = dt.merge(px, on=["date", "stock_id"])
+    m = m[m["stock_id"].isin(ids) & (m["volume"] > 0)]
+    if m.empty:
+        return pd.DataFrame(columns=cols)
+    m["ratio"] = m["dt_vol"] / m["volume"] * 100
+    rows = []
+    for sid, g in m.groupby("stock_id"):
+        g = g.sort_values("date").tail(n)
+        if len(g) < 2:                      # 至少 2 天才有趨勢意義
+            continue
+        today = g["ratio"].iloc[-1]
+        base = g["ratio"].iloc[:-1].mean()  # 前 n-1 日均（不含今日）
+        if base and base > 0:
+            tag = "🔥升溫" if today > base * 1.2 else ("❄降溫" if today < base * 0.8 else "➖持平")
+        else:
+            tag = "➖持平"
+        rows.append({"stock_id": sid, f"當沖比均{n}日": round(g["ratio"].mean(), 1),
+                     "當沖比趨勢": tag})
+    return pd.DataFrame(rows, columns=cols) if rows else pd.DataFrame(columns=cols)
+
+
 def enrich(df: pd.DataFrame, signals: pd.DataFrame | None = None) -> pd.DataFrame:
     """把『當沖比率%』併進 df（依 stock_id）。signals 可預先算好重用。"""
     if df is None or df.empty:

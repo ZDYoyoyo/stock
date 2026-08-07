@@ -50,6 +50,12 @@ def _update(days: int):
                        cwd=str(ROOT), check=False)
     except Exception as e:
         print(f"[更新] 借券累積略過：{e}")
+    # 當沖量逐日累積入 DB（免費 TWSE+TPEX，各 1 call/日）→ 供當沖比熱度趨勢欄。
+    try:
+        subprocess.run([sys.executable, "-m", "scripts.backfill_daytrade", "--days", str(days)],
+                       cwd=str(ROOT), check=False)
+    except Exception as e:
+        print(f"[更新] 當沖累積略過：{e}")
     # 修剪分點本機快取，控制大小（只留近 60 交易日；不影響雲端無快取的重抓）
     try:
         from src.broker_signal import prune_cache
@@ -435,6 +441,11 @@ def main():
         dfdt = dts.enrich(dfdt, _dt)
         df12 = dts.enrich(df12, _dt)
         dflt = dts.enrich(dflt, _dt)
+        # 當沖比熱度趨勢（升溫/降溫）僅加在當沖軌：讀 DB day_trade 歷史，挑正在升溫的妖股 arena
+        if dfdt is not None and not dfdt.empty:
+            _dtrend = dts.trend(dfdt["stock_id"].tolist())
+            if _dtrend is not None and not _dtrend.empty:
+                dfdt = dfdt.merge(_dtrend, on="stock_id", how="left")
     except Exception as e:
         print(f"   ⚠️ 當沖比率略過（{e}）")
 
@@ -523,8 +534,11 @@ def main():
     note11 = _dated(_asof_note(df11, "t11"), _flownote + _holder_note)
     note16 = _dated(_asof_note(df16, "t16"), _flownote)
     _dt_asof = _asof_note(dfdt, "daytrade")
+    _dt_trend_note = ("\n🔥 當沖比均5日＝近5日當沖比%均(熱度基準)；當沖比趨勢＝今日 vs 前4日均："
+                      "🔥升溫(今>均×1.2·資金/妖股湧入·波動放大)／❄降溫(今<均×0.8·退燒)／➖持平"
+                      "——只表當沖熱度升降，非多空方向；升溫股盤中振幅大，當沖機會與風險同step。")
     notedt = ("📅 " + (f"{_dt_asof}。" if _dt_asof else "") + report_html.DAYTRADE_NOTE
-              + " " + report_html.BIAS_NOTE + "\n" + _flownote)
+              + " " + report_html.BIAS_NOTE + "\n" + _flownote + _dt_trend_note)
 
     OUTPUT_DIR.mkdir(parents=True, exist_ok=True)
     today = date.today().isoformat()
@@ -574,7 +588,7 @@ def main():
                   "ROE估%", "營收YoY%", "連配息年", "score"], skipped=args.skip_longterm,
                  note=_flownote.strip())
         _section(f, "🔴 當沖候選｜高波動+高流動（盤中盯，非即時訊號）", dfdt,
-                 ["stock_id", "name", "market", "產業", "今日收盤", "今日漲跌%", "多空傾向", "與大盤", "均線排列", "季線年線", "20MA乖離%", "52週位置%", "成交額億", "當沖比率%",
+                 ["stock_id", "name", "market", "產業", "今日收盤", "今日漲跌%", "多空傾向", "與大盤", "均線排列", "季線年線", "20MA乖離%", "52週位置%", "成交額億", "當沖比率%", "當沖比均5日", "當沖比趨勢",
                   "外資今日", "投信今日", "自營今日", "融資今日", "融券今日", "外資", "投信", "自營", "融資增減", "融券增減", "外資連", "投信連", "自營連", "主導度%", "今日量張", "券資比%", "融資佔量%", "融券佔量%", "借券賣出餘額", "借券增減", "主力淨額", "隔日沖賣壓%", "籌碼訊號", "當日振幅%", "均振幅%", "量能倍數"],
                  note=notedt)
         if not pf_view.empty:
@@ -631,7 +645,7 @@ def main():
                   "營收YoY%", "連配息年", "score"],
          "signed": ["今日漲跌%", "20MA乖離%","外資今日", "投信今日", "自營今日", "融資今日", "融券今日", "外資", "投信", "自營", "融資增減", "融券增減", "外資連", "投信連", "自營連", "主導度%", "融資佔量%", "融券佔量%", "借券增減", "主力淨額", "籌碼訊號", "營收YoY%"]},
         {"title": "🔴 當沖候選｜高波動+高流動（盤中盯，非即時訊號）", "df": dfdt, "note": notedt, "n": 20,
-         "cols": ["stock_id", "name", "market", "產業", "今日收盤", "今日漲跌%", "多空傾向", "與大盤", "均線排列", "季線年線", "20MA乖離%", "52週位置%", "成交額億", "當沖比率%",
+         "cols": ["stock_id", "name", "market", "產業", "今日收盤", "今日漲跌%", "多空傾向", "與大盤", "均線排列", "季線年線", "20MA乖離%", "52週位置%", "成交額億", "當沖比率%", "當沖比均5日", "當沖比趨勢",
                   "外資今日", "投信今日", "自營今日", "融資今日", "融券今日", "外資", "投信", "自營", "融資增減", "融券增減", "外資連", "投信連", "自營連", "主導度%", "今日量張", "券資比%", "融資佔量%", "融券佔量%", "借券賣出餘額", "借券增減", "主力淨額", "隔日沖賣壓%", "籌碼訊號", "當日振幅%", "均振幅%", "量能倍數"],
          "signed": ["今日漲跌%", "20MA乖離%","外資今日", "投信今日", "自營今日", "融資今日", "融券今日", "外資", "投信", "自營", "融資增減", "融券增減", "外資連", "投信連", "自營連", "主導度%", "融資佔量%", "融券佔量%", "借券增減", "主力淨額", "籌碼訊號"]},
     ]

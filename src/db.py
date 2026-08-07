@@ -76,6 +76,11 @@ CREATE TABLE IF NOT EXISTS broker_net (
     nets TEXT,                -- {分點:淨買張} 的 JSON（聚合後全保真，下游只用此 dict）
     PRIMARY KEY (date, stock_id)
 );
+CREATE TABLE IF NOT EXISTS day_trade (
+    date TEXT, stock_id TEXT,
+    dt_vol INTEGER,           -- 當日沖銷成交量（張）；當沖比%＝dt_vol÷price.volume
+    PRIMARY KEY (date, stock_id)
+);
 """
 
 
