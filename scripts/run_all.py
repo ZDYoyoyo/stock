@@ -27,6 +27,7 @@ from src import regime as regime_mod, global_market as gm, report_html
 from src.screeners import institutional_accumulation as t11
 from src.screeners import relative_strength as t16
 from src.screeners import day_trade_candidates as daytrade
+from src.screeners import daytrade_snipe
 from src.screeners import long_term_value as lt
 from src.screeners import revenue_momentum as t12
 from src.screeners import landmine
@@ -540,6 +541,21 @@ def main():
     notedt = ("📅 " + (f"{_dt_asof}。" if _dt_asof else "") + report_html.DAYTRADE_NOTE
               + " " + report_html.BIAS_NOTE + "\n" + _flownote + _dt_trend_note)
 
+    # 第6軌：隔日沖鎖碼候選（漲停/大漲 + 主力/隔日沖大戶鎖碼進場）——自足(自抓分點)
+    try:
+        dfsnipe = daytrade_snipe.run()
+    except Exception as e:
+        print(f"   ⚠️ 隔日沖鎖碼軌略過（{e}）")
+        dfsnipe = None
+    _snipe_asof = _asof_note(dfsnipe, "snipe") if dfsnipe is not None else ""
+    notesnipe = ("📅 " + (f"{_snipe_asof}。" if _snipe_asof else "")
+                 + "🎯 隔日沖鎖碼候選＝今日漲停/大漲(≥9%) + 主力(前15分點)集中淨買『鎖碼』"
+                 "，且今日大買分點正是此檔近期『隔日沖常客』(反覆昨買今賣)→ 隔日(T+1)這些大戶常倒貨"
+                 "、開高走低/對殺，明日當沖 arena。"
+                 "\n　↳ 主力淨額>0=有人今天鎖碼；隔日沖鎖碼🎯=今日大買分點為此檔隔日沖常客(更該防隔日倒貨)。"
+                 "\n⚠️ 散戶『隔日沖鎖碼股』打法、**未回測驗證有 edge**、非投資建議；需 Sponsor 分點，"
+                 "無則只出漲停清單。方向未定(可能軋空續強，也可能開高走低)，僅圈定舞台、非多空訊號。")
+
     OUTPUT_DIR.mkdir(parents=True, exist_ok=True)
     today = date.today().isoformat()
 
@@ -591,6 +607,9 @@ def main():
                  ["stock_id", "name", "market", "產業", "今日收盤", "今日漲跌%", "多空傾向", "與大盤", "均線排列", "季線年線", "20MA乖離%", "52週位置%", "成交額億", "當沖比率%", "當沖比均5日", "當沖比趨勢",
                   "外資今日", "投信今日", "自營今日", "融資今日", "融券今日", "外資", "投信", "自營", "融資增減", "融券增減", "外資連", "投信連", "自營連", "主導度%", "今日量張", "券資比%", "融資佔量%", "融券佔量%", "借券賣出餘額", "借券增減", "主力淨額", "隔日沖賣壓%", "籌碼訊號", "當日振幅%", "均振幅%", "量能倍數"],
                  note=notedt)
+        _section(f, "🎯 隔日沖鎖碼候選｜漲停/大漲 + 主力/隔日沖大戶鎖碼（明日對殺 arena，非即時訊號）", dfsnipe,
+                 ["stock_id", "name", "market", "產業", "close", "漲跌%", "成交額億", "當沖比率%", "主力淨額", "隔日沖鎖碼"],
+                 note=notesnipe)
         if not pf_view.empty:
             f.write(f"\n## 📋 我的持股（總損益 {pf_summary['總損益']:+,}"
                     f"｜{pf_summary['總報酬%']:+.2f}%）\n\n")
@@ -648,6 +667,10 @@ def main():
          "cols": ["stock_id", "name", "market", "產業", "今日收盤", "今日漲跌%", "多空傾向", "與大盤", "均線排列", "季線年線", "20MA乖離%", "52週位置%", "成交額億", "當沖比率%", "當沖比均5日", "當沖比趨勢",
                   "外資今日", "投信今日", "自營今日", "融資今日", "融券今日", "外資", "投信", "自營", "融資增減", "融券增減", "外資連", "投信連", "自營連", "主導度%", "今日量張", "券資比%", "融資佔量%", "融券佔量%", "借券賣出餘額", "借券增減", "主力淨額", "隔日沖賣壓%", "籌碼訊號", "當日振幅%", "均振幅%", "量能倍數"],
          "signed": ["今日漲跌%", "20MA乖離%","外資今日", "投信今日", "自營今日", "融資今日", "融券今日", "外資", "投信", "自營", "融資增減", "融券增減", "外資連", "投信連", "自營連", "主導度%", "融資佔量%", "融券佔量%", "借券增減", "主力淨額", "籌碼訊號"]},
+        {"title": "🎯 隔日沖鎖碼候選｜漲停/大漲 + 主力/隔日沖大戶鎖碼（明日對殺 arena，非即時訊號）",
+         "df": dfsnipe, "note": notesnipe, "n": 15,
+         "cols": ["stock_id", "name", "market", "產業", "close", "漲跌%", "成交額億", "當沖比率%", "主力淨額", "隔日沖鎖碼"],
+         "signed": ["漲跌%", "主力淨額"]},
     ]
     if not pf_view.empty:
         blocks.append({

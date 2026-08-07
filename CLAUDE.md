@@ -55,6 +55,7 @@ trust_net/dealer_net/total_net`、`margin_balance/short_balance` 同理）。所
 用 `一鍵執行/*.bat` 操作，看報告做台股波段／當沖／長期決策。
 
 **五軌**：T11 法人吸貨、T16 抗跌強勢、T12 月營收動能、長期價值、當沖候選。
+（＋第6軌 **隔日沖鎖碼候選**：漲停/大漲 + 主力/隔日沖大戶鎖碼進場，實驗性、未回測、見 `daytrade_snipe`。）
 
 ## 常用指令
 
@@ -86,6 +87,10 @@ python -m scripts.sync_data load               # 由 CSV 重建 stock.db
 - `src/tech_signal.py` — 技術面併欄：均線排列(5/10/20多空)、季線年線(60/240MA中長多空)、
   20MA乖離%、52週位置%(近1年區間位置)、成交額億(資金權重)。需長歷史→靠滾動窗每日DB。
 - `src/screeners/` — 各軌篩選器 + `landmine`(地雷偵測)。
+- `src/screeners/daytrade_snipe.py` — **第6軌 隔日沖鎖碼候選(實驗)**：DB 抓今日漲停/大漲(≥9%)→取成交額前N檔→
+  分點算主力淨額(前15買+前15賣)，只對『主力淨買鎖碼』者比對此檔近窗『隔日沖常客』(反覆昨買今賣≥2次)→
+  今日大買分點命中常客則標🎯。挑明日對殺 arena。⚠️未回測、方向未定(可能軋空續強/開高走低)、非投資建議；
+  需 Sponsor 分點(無則只出漲停清單)、走 broker_net 本機快取。實測🎯精準命中凱基台北/美林/元大等公認隔日沖分點。
 - `src/twse_client.py` / `src/tpex_client.py` — 官方資料 client（上市／上櫃）；含 `day_trade` 當沖統計。
 - `src/day_trade_signal.py` — 當沖比率% 併欄（妖股對殺偵測，TWSE+TPEX 官方當沖÷總量，免費）。
   `fetch_market_day` 全市場單日→DB `day_trade` rows(供 backfill)；`trend(ids,n=5)` 讀 DB 歷史出
@@ -138,7 +143,7 @@ python -m scripts.sync_data load               # 由 CSV 重建 stock.db
 - `scripts/backfill_valuation.py` — 回補估值面板→`data/history/valuation_panel.csv.gz`（供長期價值軌）。
   月頻(每月首交易日)抓 TWSE BWIBBU_d 殖利率/PER/PBR，僅上市；`compute_longterm_entries` 用之。
 - `scripts/run_longterm_backtest.py` — 長期價值軌回測（月頻價值篩選 vs 買入持有/+regime）。
-- `tests/` — 94 個單元測試（signals／portfolio／T12前視／長期價值篩選／db 快取／定調7面向／借券enrich＋歷史增減／分點主力淨額＋隔日沖賣壓／分點本機快取／當沖比熱度趨勢／個股深掘時間序列＋隔日沖常客／SVG迷你圖／T16 OOS純函式／千張大戶分級聚合）；`python -m pytest tests/ -q`。
+- `tests/` — 97 個單元測試（signals／portfolio／T12前視／長期價值篩選／db 快取／定調7面向／借券enrich＋歷史增減／分點主力淨額＋隔日沖賣壓／分點本機快取／當沖比熱度趨勢／隔日沖鎖碼軌／個股深掘時間序列＋隔日沖常客／SVG迷你圖／T16 OOS純函式／千張大戶分級聚合）；`python -m pytest tests/ -q`。
 - 報告：`reports/signal_compare.md`、`reports/t16_tune.md`、`reports/portfolio_backtest.md`、`reports/oos_validation.md`、`reports/longterm_backtest.md`、`reports/t16_oos.md`。
 
 **指令**：
