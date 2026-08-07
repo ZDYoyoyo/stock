@@ -19,3 +19,4 @@ reports/stock/
 # Shioaji SDK 登入時自動產生的日誌，不入庫
 shioaji.log
 data/history/daytrade_signal_panel.csv
+data/history/snipe_signal_panel.csv
