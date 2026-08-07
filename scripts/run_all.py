@@ -179,9 +179,9 @@ def _section(f, title, df, cols, n=15, skipped=False, note=None):
             drop += [c for c, _ in srcs if c != anchor and c in disp.columns]
         disp = disp.drop(columns=drop).rename(
             columns={**report_html.COLUMN_LABELS, **merged_labels})
-        # nullable 整數欄(如 借券增減)的 <NA> 在 MD 顯示為 —（對齊 HTML）
+        # 數值欄(Int64 借券增減／float 千張週增減等)的缺值在 MD 顯示為 —（對齊 HTML 的 _fmt）
         for c in disp.columns:
-            if str(disp[c].dtype) == "Int64":
+            if str(disp[c].dtype) in ("Int64", "float64", "Float64"):
                 disp[c] = disp[c].astype(object).where(disp[c].notna(), "—")
         f.write(disp.to_markdown(index=False) + "\n")
         if len(df) > n:
@@ -303,11 +303,13 @@ def main():
 
     print("[波段] T11 + T16 …")
     df11, df16 = t11.run(), t16.run()
-    # 併入千張大戶%（來自每週 update_holders；沒資料則欄位空白）
-    from src.enrich import big_holders_map
+    # 併入千張大戶%＋週增減（每週 update_holders 累積／backfill_holders 回補；沒資料則欄位空白）
+    from src.enrich import big_holders_map, big_holder_change_map
     bh = big_holders_map()
+    bhc = big_holder_change_map()
     if not df11.empty:
         df11["千張大戶%"] = df11["stock_id"].map(bh)
+        df11["千張週增減"] = df11["stock_id"].map(bhc)
     # 對波段候選就地排雷：T11 全部 + T16 前 15（地雷常躲在強勢榜=價強地雷）
     # 掃聯集一次，成本低，再把風險標回兩張表
     if not args.skip_landmine:
@@ -509,7 +511,10 @@ def main():
     )
     def _dated(asof, base):  # 有資料日期才加「📅 …」首行，避免空日期留下光禿的一行
         return (f"📅 {asof}\n" if asof else "") + base
-    note11 = _dated(_asof_note(df11, "t11"), _flownote)
+    # 千張大戶欄僅 T11 有 → 說明只掛 note11，避免其他軌顯示描述不存在欄位的註記
+    _holder_note = ("\n💎 千張大戶%＝持股≥1000張大戶占股本比(集保週結算·週頻)：高=籌碼沉澱在大戶手中(較穩)；"
+                    "千張週增減(pp)＝本週 vs 上週：🔴+=大戶加碼(吸籌)／🟢−=大戶減碼(派發給散戶)——看大戶『這週在進還是出』")
+    note11 = _dated(_asof_note(df11, "t11"), _flownote + _holder_note)
     note16 = _dated(_asof_note(df16, "t16"), _flownote)
     _dt_asof = _asof_note(dfdt, "daytrade")
     notedt = ("📅 " + (f"{_dt_asof}。" if _dt_asof else "") + report_html.DAYTRADE_NOTE
@@ -539,7 +544,7 @@ def main():
         _section(f, "🟡 波段｜T11 法人吸貨（上市投信/上櫃外資）", df11,
                  ["stock_id", "name", "market", "產業", "investor", "close", "今日收盤", "今日漲跌%", "定調", "均線排列", "季線年線", "20MA乖離%", "52週位置%", "成交額億", "當沖比率%",
                   "外資今日", "投信今日", "自營今日", "融資今日", "融券今日", "外資", "投信", "自營", "融資增減", "融券增減", "外資連", "投信連", "自營連", "主導度%", "今日量張", "量能倍數", "券資比%", "融資佔量%", "融券佔量%", "借券賣出餘額", "借券增減", "主力淨額", "隔日沖賣壓%", "籌碼訊號",
-                  "price_gain_%", "consec_buy_days", "buy_ratio_%", "千張大戶%", "風險", "紅旗", "score"],
+                  "price_gain_%", "consec_buy_days", "buy_ratio_%", "千張大戶%", "千張週增減", "風險", "紅旗", "score"],
                  note=note11)
         _landmine_warn(f, df11)
         _section(f, "🟡 波段｜T16 抗跌強勢", df16,
@@ -598,8 +603,8 @@ def main():
         {"title": "🟡 波段｜T11 法人吸貨（上市投信/上櫃外資）", "df": df11, "note": note11,
          "cols": ["stock_id", "name", "market", "產業", "investor", "close", "今日收盤", "今日漲跌%", "定調", "均線排列", "季線年線", "20MA乖離%", "52週位置%", "成交額億", "當沖比率%",
                   "外資今日", "投信今日", "自營今日", "融資今日", "融券今日", "外資", "投信", "自營", "融資增減", "融券增減", "外資連", "投信連", "自營連", "主導度%", "今日量張", "量能倍數", "券資比%", "融資佔量%", "融券佔量%", "借券賣出餘額", "借券增減", "主力淨額", "隔日沖賣壓%", "籌碼訊號",
-                  "price_gain_%", "consec_buy_days", "buy_ratio_%", "千張大戶%", "風險", "紅旗", "score"],
-         "signed": ["今日漲跌%", "20MA乖離%","price_gain_%", "外資今日", "投信今日", "自營今日", "融資今日", "融券今日", "外資", "投信", "自營", "融資增減", "融券增減", "外資連", "投信連", "自營連", "主導度%", "融資佔量%", "融券佔量%", "借券增減", "主力淨額", "籌碼訊號"],
+                  "price_gain_%", "consec_buy_days", "buy_ratio_%", "千張大戶%", "千張週增減", "風險", "紅旗", "score"],
+         "signed": ["今日漲跌%", "20MA乖離%","price_gain_%", "外資今日", "投信今日", "自營今日", "融資今日", "融券今日", "外資", "投信", "自營", "融資增減", "融券增減", "外資連", "投信連", "自營連", "主導度%", "融資佔量%", "融券佔量%", "借券增減", "主力淨額", "千張週增減", "籌碼訊號"],
          "landmine": True, "landmine_label": "T11 候選",
          "after_intersection": True},
         {"title": "🟡 波段｜T16 抗跌強勢", "df": df16, "note": note16, "n": 15,

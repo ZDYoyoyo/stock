@@ -92,6 +92,10 @@ python -m scripts.sync_data load               # 由 CSV 重建 stock.db
   優先；`compute`(逐檔 live 查) fallback；`fetch_market_day`(Sponsor 全市場單日→DB rows)。
 - `scripts/backfill_sbl.py` — 回補借券歷史→DB `sbl` 表(股÷1000→張)。逐日全市場(1 call/交易日)、逐日 commit
   可續跑；`--days N` 增量。run_all `_update` 已自動接(每日累積)。dump 隨 `sync_data` 進 CSV(進 git)。
+- `scripts/backfill_holders.py` — 回補千張大戶歷史→DB `big_holders` 表(Sponsor `TaiwanStockHoldingSharesPer`)。
+  整市場逐週抓(1 call/週)、逐週 commit 可續跑；`aggregate_market` 純函式把分級明細→pct_1000(≥1000張)/pct_400(≥400張)，
+  **日期標籤與 pct 標準跟 TDCC 完全一致→無縫併入**。⚠️日更仍走**免費 TDCC**(`update_holders`，掉回免費照跑)；
+  這支只補歷史深度。跑後 `sync_data dump` 寫回 CSV(進 git)。用途：`enrich.big_holder_change_map` 千張週增減欄＋個股深掘大戶曲線。
 - `src/broker_client.py` — 券商分點日報 client(`TaiwanStockTradingDailyReport`, Sponsor)：`available()` 偵測、
   `branch_summary` 主力買賣超摘要。⚠️分點僅**單日**查(`end_date` 需 none/等於 start)、量大**不落 DB**。
 - `src/broker_signal.py` — 分點主力淨額＋隔日沖偵測 enrich(需 Sponsor)：`compute(ids, day, prev, vol_map)` 出
@@ -125,7 +129,7 @@ python -m scripts.sync_data load               # 由 CSV 重建 stock.db
 - `scripts/backfill_valuation.py` — 回補估值面板→`data/history/valuation_panel.csv.gz`（供長期價值軌）。
   月頻(每月首交易日)抓 TWSE BWIBBU_d 殖利率/PER/PBR，僅上市；`compute_longterm_entries` 用之。
 - `scripts/run_longterm_backtest.py` — 長期價值軌回測（月頻價值篩選 vs 買入持有/+regime）。
-- `tests/` — 79 個單元測試（signals／portfolio／T12前視／長期價值篩選／db 快取／定調7面向／借券enrich＋歷史增減／分點主力淨額＋隔日沖賣壓／個股深掘時間序列＋隔日沖常客／T16 OOS純函式）；`python -m pytest tests/ -q`。
+- `tests/` — 82 個單元測試（signals／portfolio／T12前視／長期價值篩選／db 快取／定調7面向／借券enrich＋歷史增減／分點主力淨額＋隔日沖賣壓／個股深掘時間序列＋隔日沖常客／T16 OOS純函式／千張大戶分級聚合）；`python -m pytest tests/ -q`。
 - 報告：`reports/signal_compare.md`、`reports/t16_tune.md`、`reports/portfolio_backtest.md`、`reports/oos_validation.md`、`reports/longterm_backtest.md`、`reports/t16_oos.md`。
 
 **指令**：
@@ -207,6 +211,9 @@ FinMind Sponsor 已辦，規劃見 `docs/Sponsor升級規劃.md`。本 session �
   run_all 每日累積，`compute_from_db` 出「借券賣出餘額(最新)＋借券增減(vs前日)」，+=法人加空/−=回補）；
   ✅**主力分點＋隔日沖賣壓%**（`broker_signal`：分點主力淨額＋昨日大買家今日倒貨的隔日沖偵測，補當沖比盲區；
   Sponsor 分點、逐檔 on-demand 僅對顯示候選、量大不落 DB；5 軌報告已加「主力淨額/隔日沖賣壓%」欄）。
+  ✅**千張大戶歷史回補([3]，`backfill_holders`)**：Sponsor `TaiwanStockHoldingSharesPer` 整市場逐週回補
+  DB `big_holders`(已補 51 週)，日期/pct 與 TDCC 一致無縫併入；日更仍免費 TDCC。run_all T11 加「**千張週增減**」欄
+  (`enrich.big_holder_change_map`，🔴+加碼/🟢−減碼)＋個股深掘大戶曲線變深。⚠️run_all 只顯示最新快照%，週增減靠此回補才穩。
   ✅個股深掘([6]，`run_stock`：分點歷史時間軸/隔日沖常客名單/主力Top分點/借券大戶趨勢)；
   ✅**隔日沖訊號回測([8]，`backtest_daytrade`)**：1540樣本實測「隔日沖賣壓%」**單獨≈無 edge**（相關+0.002、
   分組不單調、最高組甚至微正）→ 只當情境警示欄，別單獨做隔日方向；**只有極端≥20%(次日−2.2%)或搭配當日走弱

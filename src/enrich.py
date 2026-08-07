@@ -114,6 +114,29 @@ def big_holders_map() -> dict:
         return {}
 
 
+def big_holder_change_map() -> dict:
+    """回傳 {stock_id: 千張大戶%週增減(pp)}（最新一週 vs 前一週）。資料不足回空 dict。
+
+    +=大戶本週加碼(籌碼往大戶集中)、−=大戶減碼(派發給散戶)。需 big_holders 有 ≥2 週。
+    """
+    from .db import connect
+    import pandas as pd
+    try:
+        with connect() as conn:
+            dates = sorted(pd.read_sql(
+                "SELECT DISTINCT date FROM big_holders", conn)["date"].tolist())
+            if len(dates) < 2:
+                return {}
+            last, prev = dates[-1], dates[-2]
+            cur = pd.read_sql("SELECT stock_id, pct_1000 FROM big_holders WHERE date=?",
+                              conn, params=(last,)).set_index("stock_id")["pct_1000"]
+            pv = pd.read_sql("SELECT stock_id, pct_1000 FROM big_holders WHERE date=?",
+                             conn, params=(prev,)).set_index("stock_id")["pct_1000"]
+    except Exception:
+        return {}
+    return {sid: round(v - pv[sid], 2) for sid, v in cur.items() if sid in pv.index}
+
+
 def industry_map() -> dict:
     """回傳 {stock_id: 產業別}（FinMind TaiwanStockInfo，一次 call 全市場）。"""
     data = fetch("TaiwanStockInfo", start_date="2020-01-01")
