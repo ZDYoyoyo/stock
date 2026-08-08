@@ -29,10 +29,29 @@ PANEL = DATA_DIR / "history" / "snipe_signal_panel.csv"
 _TOP = 15
 
 
+def _regular_counts(sid: str, dates: list[str]) -> dict:
+    """{分點: 窗內昨買今賣次數}（走 broker_net 快取）。供收緊🎯門檻測試。"""
+    from src.broker_signal import _branch_net
+    nets = {}
+    for d in dates:
+        n = _branch_net(sid, d)
+        if n:
+            nets[d] = n
+    ds = [d for d in dates if d in nets]
+    hits: dict[str, int] = {}
+    for i in range(1, len(ds)):
+        ny, nt = nets[ds[i - 1]], nets[ds[i]]
+        buyers = sorted(((k, v) for k, v in ny.items() if v > 0),
+                        key=lambda z: z[1], reverse=True)[:_TOP]
+        for k, _ in buyers:
+            if nt.get(k, 0) < 0:
+                hits[k] = hits.get(k, 0) + 1
+    return hits
+
+
 def build(days: int, top_n: int, gain_th: float, lookback: int, sleep: float = 0.0):
     from src import broker_client as bc
     from src.broker_signal import _branch_net
-    from src.screeners.daytrade_snipe import _regulars
     if not bc.available():
         raise SystemExit("分點不可用（需 FinMind Sponsor）。")
     with connect() as c:
@@ -74,14 +93,20 @@ def build(days: int, top_n: int, gain_th: float, lookback: int, sleep: float = 0
                 continue
             vals = sorted(net_t.values(), reverse=True)
             mn = round(sum(x for x in vals[:_TOP] if x > 0) + sum(x for x in vals[-_TOP:] if x < 0))
-            flagged = False
+            reg_hits, reg_top5 = 0, 0
             if mn > 0:
-                top_buyers = {k for k, val in sorted(net_t.items(), key=lambda z: z[1], reverse=True)[:_TOP]
-                              if val > 0}
-                flagged = bool(_regulars(sid, win_dates) & top_buyers)
+                buyers_sorted = [k for k, val in sorted(net_t.items(), key=lambda z: z[1], reverse=True)
+                                 if val > 0]
+                top15, top5 = set(buyers_sorted[:_TOP]), set(buyers_sorted[:5])
+                counts = _regular_counts(sid, win_dates)
+                matched = {b: counts[b] for b in top15 if b in counts}
+                if matched:
+                    reg_hits = max(matched.values())               # 命中常客的最高昨買今賣次數
+                    reg_top5 = int(any(b in top5 for b in matched))  # 命中常客中有無今日前5大買
             rows.append({
                 "date": T, "stock_id": sid, "漲跌%": round(chg, 2), "主力淨額": mn,
-                "鎖碼": int(mn > 0), "🎯": int(flagged),
+                "鎖碼": int(mn > 0), "🎯": int(reg_hits >= 2),
+                "reg_hits": reg_hits, "reg_top5": reg_top5,
                 "gap": round((no - c0) / c0 * 100, 2),
                 "oc": round((nc - no) / no * 100, 2),
                 "cc": round((nc - c0) / c0 * 100, 2),
@@ -127,6 +152,20 @@ def analyze(panel: pd.DataFrame):
     ]
     tbl = pd.DataFrame([g for g in groups if g])
     print(tbl.to_string(index=False))
+
+    # 收緊🎯門檻：看能不能篩出『開高走低更兇』的子集
+    if "reg_hits" in p.columns:
+        print("\n--- 收緊🎯門檻（命中常客次數／是否今日前5大買）---")
+        tight = [
+            _grp(p, p["reg_hits"] >= 2, "🎯 hits≥2(現行)"),
+            _grp(p, p["reg_hits"] >= 3, "🎯 hits≥3"),
+            _grp(p, p["reg_hits"] >= 4, "🎯 hits≥4"),
+            _grp(p, p["reg_top5"] == 1, "🎯 常客為今日前5大買"),
+            _grp(p, (p["reg_hits"] >= 3) & (p["reg_top5"] == 1), "🎯 hits≥3 且 前5大買"),
+        ]
+        tt = pd.DataFrame([g for g in tight if g])
+        if not tt.empty:
+            print(tt.to_string(index=False))
     print("\n[相關] 主力淨額 vs 隔日：",
           f"gap {p['主力淨額'].corr(p['gap']):+.3f}｜oc {p['主力淨額'].corr(p['oc']):+.3f}｜"
           f"cc {p['主力淨額'].corr(p['cc']):+.3f}")

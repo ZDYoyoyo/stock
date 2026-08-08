@@ -93,7 +93,8 @@ python -m scripts.sync_data load               # 由 CSV 重建 stock.db
   需 Sponsor 分點(無則只出漲停清單)、走 broker_net 本機快取。實測🎯精準命中凱基台北/美林/元大等公認隔日沖分點。
   🔬**已回測(`backtest_snipe`，356樣本)**：鎖碼股隔日**普遍開高(gap+1.3%)、盤中開高走低(oc−0.8%/55%跌)**，
   **開越高跌越兇**(開高>7%盤中−2.4%但僅48%跌·有軋空尾部)；**收收cc≈+0.4**(gap蓋過走低)→ 是**當沖空開盤盤中回補**訊號、
-  **別抱過夜**；edge 薄(扣成本所剩無幾)。⚠️🎯門檻太鬆(83%都中標)、對報酬無額外預測力，要有用需收緊。報告 `reports/snipe_signal_backtest.md`。
+  **別抱過夜**；edge 薄(扣成本所剩無幾)。⚠️🎯對報酬無增量預測力(**收緊hits≥3/前5大買也沒用**，全~oc−0.8%)——
+  🎯只是正確辨識隔日沖玩家的**資訊**、非更強訊號；**唯一鑑別變數是隔夜開高幅度**(開高>7%盤中−2.4%)。報告 `reports/snipe_signal_backtest.md`。
 - `src/twse_client.py` / `src/tpex_client.py` — 官方資料 client（上市／上櫃）；含 `day_trade` 當沖統計。
 - `src/day_trade_signal.py` — 當沖比率% 併欄（妖股對殺偵測，TWSE+TPEX 官方當沖÷總量，免費）。
   `fetch_market_day` 全市場單日→DB `day_trade` rows(供 backfill)；`trend(ids,n=5)` 讀 DB 歷史出
