@@ -23,7 +23,7 @@ _MIN_HITS = 2      # 窗內『昨買今賣』≥此次數才算此檔的隔日�
 _TOP = 15          # 主力＝前幾大分點（對齊 broker_signal）
 
 _COLS = ["stock_id", "name", "market", "產業", "close", "漲跌%", "成交額億",
-         "當沖比率%", "主力淨額", "隔日沖鎖碼"]
+         "當沖比率%", "昨主力淨額", "今主力淨額", "隔日沖賣壓%", "隔日沖鎖碼"]
 
 
 def _regulars(sid: str, dates: list[str]) -> set:
@@ -95,28 +95,35 @@ def run(gain_th: float = _GAIN_TH, top_n: int = _TOP_N, lookback: int = _LOOKBAC
     except Exception:
         df["當沖比率%"] = pd.NA
 
-    # 3) 分點：主力淨額 + 隔日沖鎖碼標記（需 Sponsor；否則留白）
+    # 3) 分點：昨/今主力淨額 + 隔日沖賣壓%(昨買今賣實現) + 隔日沖鎖碼🎯（需 Sponsor；否則留白）
     from .. import broker_client as bc
-    main_net, lock = {}, {}
+    prev_net, main_net, sell_pressure, lock = {}, {}, {}, {}
     if bc.available():
         from .. import broker_signal as bs
         win = dates[-(lookback + 1):]
+        volmap = cur["volume"].to_dict()
         for sid in df["stock_id"]:
-            net_t = bs._branch_net(sid, today)
-            if not net_t:
+            one = bs._one(sid, today, prev, volmap.get(sid))   # 今主力淨額 + 隔日沖賣壓%（複用同一公式）
+            if not one:
                 continue
-            vals = sorted(net_t.values(), reverse=True)
-            mn = int(round(sum(x for x in vals[:_TOP] if x > 0)
-                           + sum(x for x in vals[-_TOP:] if x < 0)))
-            main_net[sid] = mn
-            if mn <= 0:                       # 只對『主力淨買鎖碼』者查隔日沖常客（省 call）
-                continue
-            top_buyers = {k for k, v in sorted(net_t.items(), key=lambda z: z[1], reverse=True)[:_TOP]
-                          if v > 0}
-            regs = _regulars(sid, win) & top_buyers
-            if regs:
-                lock[sid] = "🎯 " + "、".join(list(regs)[:2])
-    df["主力淨額"] = df["stock_id"].map(main_net).astype("Int64")
+            main_net[sid] = one["主力淨額"]
+            if "隔日沖賣壓%" in one:
+                sell_pressure[sid] = one["隔日沖賣壓%"]
+            net_y = bs._branch_net(sid, prev)                  # 昨主力淨額（快取，_one 已抓過 T-1）
+            if net_y:
+                vy = sorted(net_y.values(), reverse=True)
+                prev_net[sid] = int(round(sum(x for x in vy[:_TOP] if x > 0)
+                                          + sum(x for x in vy[-_TOP:] if x < 0)))
+            if one["主力淨額"] > 0:                             # 只對『今日主力淨買鎖碼』者查隔日沖常客（省 call）
+                net_t = bs._branch_net(sid, today)             # 快取，_one 已抓過 T
+                top_buyers = {k for k, v in sorted(net_t.items(), key=lambda z: z[1], reverse=True)[:_TOP]
+                              if v > 0}
+                regs = _regulars(sid, win) & top_buyers
+                if regs:
+                    lock[sid] = "🎯 " + "、".join(list(regs)[:2])
+    df["昨主力淨額"] = df["stock_id"].map(prev_net).astype("Int64")
+    df["今主力淨額"] = df["stock_id"].map(main_net).astype("Int64")
+    df["隔日沖賣壓%"] = df["stock_id"].map(sell_pressure)
     df["隔日沖鎖碼"] = df["stock_id"].map(lock)
 
     df = df[_COLS]

@@ -58,8 +58,22 @@ def test_snipe_flags_locked_regular(monkeypatch):
     assert list(df["stock_id"]) == ["9999"]                 # 只有漲停股入選、牛皮股濾掉
     r = df.iloc[0]
     assert r["漲跌%"] == 10.0
-    assert r["主力淨額"] == 500                              # 甲600 買 + 乙−100 賣
+    assert r["今主力淨額"] == 500                            # D5：甲600 買 + 乙−100 賣
+    assert r["昨主力淨額"] == -200                           # D4：甲 −200（昨vs今對照）
     assert "🎯" in str(r["隔日沖鎖碼"]) and "甲" in str(r["隔日沖鎖碼"])
+
+
+def test_snipe_sell_pressure(monkeypatch):
+    _seed_price()
+    # 丙 昨日(D4)大買 300、今日(D5)倒貨 −200 → 隔日沖賣壓% 應反映『昨進今出』
+    nets = {("9999", "D4"): {"丙": 300}, ("9999", "D5"): {"甲": 100, "丙": -200}}
+    monkeypatch.setattr(bc, "available", lambda *a, **k: True)
+    monkeypatch.setattr(bs, "_branch_net", lambda sid, d: nets.get((sid, d), {}))
+    df = snipe.run(gain_th=9.0)
+    r = df.iloc[0]
+    assert r["昨主力淨額"] == 300                            # D4：丙 +300
+    assert r["今主力淨額"] == -100                           # D5：甲+100、丙−200
+    assert r["隔日沖賣壓%"] == 10.0                          # 丙昨買今賣對沖 200 ÷ 今量 2000 = 10%
 
 
 def test_snipe_no_broker_still_lists_limitup(monkeypatch):
@@ -67,7 +81,9 @@ def test_snipe_no_broker_still_lists_limitup(monkeypatch):
     monkeypatch.setattr(bc, "available", lambda *a, **k: False)   # 無 Sponsor
     df = snipe.run(gain_th=9.0)
     assert list(df["stock_id"]) == ["9999"]                 # 仍出漲停清單
-    assert pd.isna(df.iloc[0]["主力淨額"])                   # 分點欄留白
+    assert pd.isna(df.iloc[0]["今主力淨額"])                 # 分點欄留白
+    assert pd.isna(df.iloc[0]["昨主力淨額"])
+    assert pd.isna(df.iloc[0]["隔日沖賣壓%"])
     assert pd.isna(df.iloc[0]["隔日沖鎖碼"])
 
 
@@ -79,5 +95,5 @@ def test_snipe_no_lock_no_flag(monkeypatch):
     monkeypatch.setattr(bc, "available", lambda *a, **k: True)
     monkeypatch.setattr(bs, "_branch_net", lambda sid, d: nets.get((sid, d), {}))
     df = snipe.run(gain_th=9.0)
-    assert df.iloc[0]["主力淨額"] == -500
+    assert df.iloc[0]["今主力淨額"] == -500
     assert pd.isna(df.iloc[0]["隔日沖鎖碼"])                 # 未鎖碼 → 無標記
