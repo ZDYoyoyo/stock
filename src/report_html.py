@@ -118,9 +118,9 @@ h3 { font-size: 14px; margin: 14px 0 4px; }
   padding:8px 14px; margin:8px 0; font-size:13px; }
 .warn ul { margin:6px 0 0; padding-left:20px; }
 ul.ft { margin:4px 0 12px; padding-left:20px; font-size:13px; line-height:1.7; }
-.tblwrap { overflow-x: auto; }
-table { border-collapse: separate; border-spacing: 0; width: 100%; font-size: 13px; background: #fff;
-  border-radius: 8px; overflow: hidden; box-shadow: 0 1px 3px rgba(0,0,0,.06); }
+/* 表格框：限高→框內捲動，sticky 表頭/首欄才會相對這個框固定(不隨頁面滑走) */
+.tblwrap { overflow: auto; max-height: 82vh; border-radius: 8px; box-shadow: 0 1px 3px rgba(0,0,0,.06); }
+table { border-collapse: separate; border-spacing: 0; width: 100%; font-size: 13px; background: #fff; }
 th, td { padding: 7px 10px; text-align: right; white-space: nowrap; }
 th { background: #2c3e50; color: #fff; font-weight: 600; }
 th small { display:block; font-weight:400; font-size:10px; opacity:.8; margin-top:1px; }
