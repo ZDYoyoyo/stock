@@ -273,6 +273,24 @@ def _followthrough_html(ft, ftstats) -> str:
     return h
 
 
+def _snipe_ohlc_html(so, sostats) -> str:
+    """昨日隔日沖鎖碼候選 → 今日開高低收（專屬區塊，具體驗證開高走低）。對齊 .md 同名段。"""
+    if not so or not so.get("rows"):
+        return ""
+    df = pd.DataFrame(so["rows"])
+    cols = ["stock_id", "name", "昨收", "今開", "今高", "今低", "今收", "漲跌%", "跳空%", "盤中%"]
+    sub = ""
+    if sostats:
+        sub = (f"　今日均跳空 {sostats['gap']:+.2f}%、均盤中 {sostats['oc']:+.2f}%"
+               f"（盤中走低 {sostats['oc_down']}/{sostats['n']} 檔）")
+    h = (f'<h2>🎯 昨日隔日沖鎖碼候選 → 今日走勢（{so["date"]} 精選 → {so.get("trade_date", "今日")} 開高低收）</h2>'
+         f'<p class="note">具體驗證『開高走低』：跳空%＝隔夜高開幅度(今開 vs 昨收)、'
+         f'盤中%＝開盤後走勢(今收 vs 今開，🔴正=開低走高/守住、🟢負=開高走低)。{sub}'
+         f'<br>⚠️ 方向不穩(可能軋空續強)、edge 薄、非投資建議。</p>')
+    h += _table(df, cols, ["漲跌%", "跳空%", "盤中%"])
+    return h
+
+
 def _regime_class(reg: dict) -> str:
     label = reg.get("regime", "")
     if "偏空" in label:
@@ -322,7 +340,7 @@ function allCols(show){document.querySelectorAll('.colctrl input[type=checkbox]'
 
 
 def build(today, reg, glob_lines, sox, blocks, intersection=None,
-          followthrough=None, ftstats=None) -> str:
+          followthrough=None, ftstats=None, snipe_ohlc=None, snipe_ohlc_stats=None) -> str:
     from .regime import summary_line
     banner = (f'<div class="banner {_regime_class(reg)}">🚦 {summary_line(reg)}'
               f'<small>{sox}<br>🌍 {" ｜ ".join(glob_lines)}</small></div>')
@@ -358,6 +376,7 @@ def build(today, reg, glob_lines, sox, blocks, intersection=None,
             body += f'<div class="star">⭐ 雙訊號交集（法人買且抗跌）：{names}</div>'
 
     # 昨日精選今日追蹤（對齊 .md）：擺在各軌之後、術語小抄之前
+    body += _snipe_ohlc_html(snipe_ohlc, snipe_ohlc_stats)
     body += _followthrough_html(followthrough, ftstats)
 
     return f"""<!doctype html><html lang="zh-Hant"><head><meta charset="utf-8">

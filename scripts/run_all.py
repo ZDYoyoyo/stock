@@ -571,6 +571,9 @@ def main():
     ftstats = pt.summary_stats(ft) if ft else {}
     pt.save(today, {"波段T11": df11, "波段T16": df16, "當沖": dfdt,
                     "隔日沖鎖碼": dfsnipe}, n=15)
+    # 昨日隔日沖鎖碼候選 → 今日開高低收（專屬區塊，具體驗證開高走低）
+    so = pt.snipe_ohlc(today)
+    sostats = pt.snipe_ohlc_stats(so)
     # 持股籌碼歸因算一次，.md 與 .html 共用（確保兩份內容一致）
     pf_attr = _holdings_attribution(pf_view) if not pf_view.empty else []
 
@@ -625,6 +628,21 @@ def main():
                 f.write("\n### 📊 持股今日籌碼歸因（今 vs 昨，自動）\n\n")
                 for sid, name, line in attr:
                     f.write(f"- **{sid} {name}**：{line}\n")
+        # 昨日隔日沖鎖碼候選 → 今日走勢（開/高/低/收，具體驗證開高走低）
+        if so.get("rows"):
+            f.write(f"\n## 🎯 昨日隔日沖鎖碼候選 → 今日走勢"
+                    f"（{so['date']} 精選 → {so.get('trade_date', '今日')} 開高低收）\n\n")
+            sline = ""
+            if sostats:
+                sline = (f"　今日均跳空 {sostats['gap']:+.2f}%、均盤中 {sostats['oc']:+.2f}%"
+                         f"（盤中走低 {sostats['oc_down']}/{sostats['n']} 檔）")
+            f.write("> 具體驗證『開高走低』：跳空%＝隔夜高開(今開vs昨收)、"
+                    f"盤中%＝開盤後走勢(今收vs今開，正=守住/走高、負=開高走低)。{sline}\n")
+            f.write("> ⚠️ 方向不穩(可能軋空續強)、edge 薄、非投資建議。\n\n")
+            sdf = pd.DataFrame(so["rows"])[["stock_id", "name", "昨收", "今開", "今高",
+                                            "今低", "今收", "漲跌%", "跳空%", "盤中%"]]
+            sdf = sdf.rename(columns={"stock_id": "代號", "name": "名稱"})
+            f.write(sdf.to_markdown(index=False) + "\n")
         # 昨日精選今日追蹤（波段T11/T16 + 當沖前15 → 今天表現+原因）
         if ft.get("tracks"):
             f.write(f"\n## 📈 昨日精選今日追蹤（{ft['date']} 精選 → 今日表現＋原因）\n\n")
@@ -702,7 +720,8 @@ def main():
 
     inter = [f"{s} {nm.get(s,'')}" for s in both]
     html = report_html.build(today, reg, gm.summary_lines(glob), gm.sox_signal(glob),
-                             blocks, intersection=inter, followthrough=ft, ftstats=ftstats)
+                             blocks, intersection=inter, followthrough=ft, ftstats=ftstats,
+                             snipe_ohlc=so, snipe_ohlc_stats=sostats)
     html_path = OUTPUT_DIR / f"{today}_run_all.html"
     html_path.write_text(html, encoding="utf-8")
 

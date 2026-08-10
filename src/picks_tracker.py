@@ -63,6 +63,8 @@ def followthrough(today: str) -> dict:
     prev = df[df["date"] == pdate]
     out = {"date": pdate, "tracks": {}}
     for track in prev["track"].unique():
+        if track == "隔日沖鎖碼":          # 有專屬 OHLC 走勢區塊(snipe_ohlc)，不在通用追蹤重複列
+            continue
         rows = []
         for r in prev[prev["track"] == track].sort_values("rank").itertuples():
             diag = cd._fetch(str(r.stock_id), 5)
@@ -73,6 +75,64 @@ def followthrough(today: str) -> dict:
         if rows:
             out["tracks"][track] = rows
     return out
+
+
+def snipe_ohlc(today: str, track: str = "隔日沖鎖碼") -> dict:
+    """昨日『隔日沖鎖碼候選』→ 今日開高低收走勢（具體看『開高走低』有沒有發生）。
+
+    回傳 {"date": 昨日, "trade_date": 今交易日,
+          "rows": [{rank, stock_id, name, 昨收, 今開, 今高, 今低, 今收, 漲跌%, 跳空%, 盤中%}]}。
+      跳空%＝(今開−昨收)/昨收（隔夜高開幅度）；盤中%＝(今收−今開)/今開（開高走低幅度，負=走低）。
+    無前一日鎖碼紀錄 / 無今日價量 → 回 {}。
+    """
+    df = _load()
+    picks = df[df["track"] == track]
+    past = sorted(d for d in picks["date"].unique() if str(d) < today)
+    pdate = past[-1] if past else None
+    if not pdate:
+        return {}
+    from .db import connect
+    with connect() as conn:
+        px = pd.read_sql("SELECT date, stock_id, open, high, low, close FROM price", conn)
+    if px.empty:
+        return {}
+    trading = sorted(px["date"].unique())
+    # 基準交易日＝pick 當時的最後交易日(≤pdate)：pdate 可能落在週末/假日(非交易日標籤)，
+    # 直接用 pdate 查昨收會撈空 → 退到 ≤pdate 的最後一個真交易日。今交易日＝最新。
+    ref = next((d for d in reversed(trading) if d <= pdate), None)
+    tdate = trading[-1]
+    if ref is None or tdate <= ref:
+        return {}
+    cur = px[px["date"] == tdate].set_index("stock_id")
+    yclose = px[px["date"] == ref].set_index("stock_id")["close"]
+    rows = []
+    for r in picks[picks["date"] == pdate].sort_values("rank").itertuples():
+        sid = str(r.stock_id)
+        if sid not in cur.index or sid not in yclose.index:
+            continue
+        o, h, l, c = (cur.loc[sid, "open"], cur.loc[sid, "high"],
+                      cur.loc[sid, "low"], cur.loc[sid, "close"])
+        yc = yclose[sid]
+        if not yc or yc <= 0 or not o or o <= 0 or pd.isna(o) or pd.isna(c):
+            continue
+        rows.append({"rank": int(r.rank), "stock_id": sid, "name": r.name,
+                     "昨收": round(yc, 2), "今開": round(o, 2), "今高": round(h, 2),
+                     "今低": round(l, 2), "今收": round(c, 2),
+                     "漲跌%": round((c - yc) / yc * 100, 2),
+                     "跳空%": round((o - yc) / yc * 100, 2),
+                     "盤中%": round((c - o) / o * 100, 2)})
+    return {"date": ref, "trade_date": tdate, "rows": rows} if rows else {}
+
+
+def snipe_ohlc_stats(so: dict) -> dict:
+    """今日走勢彙總：均跳空%、均盤中%、盤中走低家數/總數（驗證開高走低）。"""
+    rows = so.get("rows", []) if so else []
+    if not rows:
+        return {}
+    gap = [r["跳空%"] for r in rows]
+    oc = [r["盤中%"] for r in rows]
+    return {"gap": round(sum(gap) / len(gap), 2), "oc": round(sum(oc) / len(oc), 2),
+            "oc_down": sum(1 for x in oc if x < 0), "n": len(rows)}
 
 
 def summary_stats(ft: dict) -> dict:
