@@ -293,6 +293,7 @@ stock_id,stock_name,industry,type
 2233,宇隆,,twse
 2235,謚源,,tpex
 2236,百達-KY,,twse
+2237,華德動能-創,,twse
 2239,英利-KY,,twse
 2241,艾姆勒,,twse
 2243,宏旭-KY,,twse
@@ -1242,7 +1243,7 @@ stock_id,stock_name,industry,type
 5880,合庫金,,twse
 5902,德記,,tpex
 5903,全家,,tpex
-5904,寶雅,,tpex
+5904,寶雅*,,tpex
 5905,南仁湖,,tpex
 5906,台南-KY,,twse
 5907,大洋-KY,,twse
