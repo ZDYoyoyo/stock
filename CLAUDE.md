@@ -252,6 +252,21 @@ FinMind Sponsor 已辦，規劃見 `docs/Sponsor升級規劃.md`。本 session �
    唯一鑑別是隔夜開高幅度；定位＝當沖空開盤盤中回補的**情境舞台**、非提款機、別抱過夜。
 - **狀態＝roadmap 全清空，功能面已完整；下一步見上「🎯 下次可做」選單，但使用者傾向先實戰觀察。**
 
+### 📌 2026-08 第6軌強化 + 健壯性 session 收尾（下次接手看這裡）
+本 session 全部已 push、103 單元測試全綠。圍繞使用者實戰第6軌的一連串需求：
+1. **HTML 表頭固定真生效**（`report_html._CSS`）：原 `thead sticky` 被 `.tblwrap overflow-x`＋
+   `table overflow:hidden`(圓角)兩層攔截失效→改 `.tblwrap max-height:82vh overflow:auto`＋圓角/陰影搬到 tblwrap、
+   table 去 overflow:hidden。長表框內捲動、欄名黏頂；Playwright 實測。
+2. **第6軌加昨/今主力淨額 + 隔日沖賣壓%**（`daytrade_snipe`＋複用 `broker_signal._one`）：昨vs今看鎖碼持續/在倒。
+3. **昨日鎖碼候選→今日走勢專屬區塊**（`picks_tracker.snipe_ohlc`＋`report_html._snipe_ohlc_html`＋run_all MD）：
+   昨日精選今日 開/高/低/收＋跳空%(隔夜高開)/盤中%(開高走低)＋**鎖碼淨額(當時主力買多少,存 picks 時記下)**；
+   從通用 followthrough 排除。⚠️基準日用『≤pick標籤最後交易日』(對週末/非交易日標籤健壯——曾把08-07誤標週日08-09)。
+4. **第6軌每日表加判斷欄**（run_all 就地 enrich dfsnipe）：量能倍數/今日量張、20MA乖離%/52週位置%、均線排列/季年、
+   外資今日/投信今日、券資比%/借券/籌碼訊號。⚠️只併今日法人單日、**不加10日「外資」欄**（否則 MERGE_GROUPS 把單日欄吃掉）。
+5. **502 健壯性**（`finmind_client.fetch` 5xx 退避重試＋run_all 長期軌 except 放寬為 Exception）：
+   一次 FinMind 抖動不再炸掉整份日報。
+- **狀態＝第6軌功能已很完整(昨vs今/走勢追蹤/判斷欄)；使用者持續實戰觀察中。**
+
 ### 報告增強 roadmap（2026-07 盤點，報告欄位已很完整，瓶頸在「把資料變行動」）
 - **① 綜合定調**：✅已完成。波段/成長/長期軌皆有 `verdict.add_verdict`，7面向投票
   （法人主導/融資散戶/均線排列/季線年線/20MA乖離/52週位置/券資比軋空）→ 每檔一句
