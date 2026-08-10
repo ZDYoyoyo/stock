@@ -12,19 +12,23 @@ from .config import DATA_DIR
 from .screeners import chip_diagnosis as cd
 
 PICKS_CSV = DATA_DIR / "history" / "picks.csv"
-_COLS = ["date", "track", "rank", "stock_id", "name"]
+_COLS = ["date", "track", "rank", "stock_id", "name", "主力淨額"]
 
 
 def _load() -> pd.DataFrame:
     if not PICKS_CSV.exists():
         return pd.DataFrame(columns=_COLS)
-    return pd.read_csv(PICKS_CSV, dtype={"stock_id": str})
+    df = pd.read_csv(PICKS_CSV, dtype={"stock_id": str})
+    if "主力淨額" not in df.columns:          # 舊檔無此欄→補空，向後相容
+        df["主力淨額"] = pd.NA
+    return df
 
 
 def save(today: str, tracks: dict, n: int = 15) -> pd.DataFrame:
     """把今天各軌前 n 名存進 picks.csv（同日重跑會覆蓋當日，不重複累積）。
 
-    tracks: {軌名: DataFrame(需含 stock_id, name)}。
+    tracks: {軌名: DataFrame(需含 stock_id, name)}。若 df 有『今主力淨額』欄
+    （隔日沖鎖碼軌）一併存下 → 追蹤時可直接顯示『當時鎖碼買了多少』，免重算。
     """
     df = _load()
     df = df[df["date"] != today]  # 同日全清後重寫
@@ -33,8 +37,10 @@ def save(today: str, tracks: dict, n: int = 15) -> pd.DataFrame:
         if tdf is None or tdf.empty:
             continue
         for rank, (_, r) in enumerate(tdf.head(n).iterrows(), 1):
+            mf = r.get("今主力淨額", pd.NA)
             rows.append({"date": today, "track": track, "rank": rank,
-                         "stock_id": str(r["stock_id"]), "name": r.get("name", "")})
+                         "stock_id": str(r["stock_id"]), "name": r.get("name", ""),
+                         "主力淨額": int(mf) if pd.notna(mf) else pd.NA})
     if rows:
         df = pd.concat([df, pd.DataFrame(rows)], ignore_index=True)
     df = df.sort_values(["date", "track", "rank"]).reset_index(drop=True)
@@ -81,7 +87,8 @@ def snipe_ohlc(today: str, track: str = "隔日沖鎖碼") -> dict:
     """昨日『隔日沖鎖碼候選』→ 今日開高低收走勢（具體看『開高走低』有沒有發生）。
 
     回傳 {"date": 昨日, "trade_date": 今交易日,
-          "rows": [{rank, stock_id, name, 昨收, 今開, 今高, 今低, 今收, 漲跌%, 跳空%, 盤中%}]}。
+          "rows": [{rank, stock_id, name, 鎖碼淨額, 昨收, 今開, 今高, 今低, 今收, 漲跌%, 跳空%, 盤中%}]}。
+      鎖碼淨額＝pick 當日主力淨額(前15買+前15賣)＝『當時鎖碼買了多少』(存檔時記下、免重算)。
       跳空%＝(今開−昨收)/昨收（隔夜高開幅度）；盤中%＝(今收−今開)/今開（開高走低幅度，負=走低）。
     無前一日鎖碼紀錄 / 無今日價量 → 回 {}。
     """
@@ -105,8 +112,10 @@ def snipe_ohlc(today: str, track: str = "隔日沖鎖碼") -> dict:
         return {}
     cur = px[px["date"] == tdate].set_index("stock_id")
     yclose = px[px["date"] == ref].set_index("stock_id")["close"]
+    sub = picks[picks["date"] == pdate].sort_values("rank")
+    mf_map = dict(zip(sub["stock_id"].astype(str), sub["主力淨額"]))   # 存檔時記下的當日鎖碼淨額
     rows = []
-    for r in picks[picks["date"] == pdate].sort_values("rank").itertuples():
+    for r in sub.itertuples():
         sid = str(r.stock_id)
         if sid not in cur.index or sid not in yclose.index:
             continue
@@ -115,7 +124,9 @@ def snipe_ohlc(today: str, track: str = "隔日沖鎖碼") -> dict:
         yc = yclose[sid]
         if not yc or yc <= 0 or not o or o <= 0 or pd.isna(o) or pd.isna(c):
             continue
+        mf = mf_map.get(sid)
         rows.append({"rank": int(r.rank), "stock_id": sid, "name": r.name,
+                     "鎖碼淨額": int(mf) if pd.notna(mf) else pd.NA,
                      "昨收": round(yc, 2), "今開": round(o, 2), "今高": round(h, 2),
                      "今低": round(l, 2), "今收": round(c, 2),
                      "漲跌%": round((c - yc) / yc * 100, 2),

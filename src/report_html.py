@@ -278,16 +278,18 @@ def _snipe_ohlc_html(so, sostats) -> str:
     if not so or not so.get("rows"):
         return ""
     df = pd.DataFrame(so["rows"])
-    cols = ["stock_id", "name", "昨收", "今開", "今高", "今低", "今收", "漲跌%", "跳空%", "盤中%"]
+    cols = ["stock_id", "name", "鎖碼淨額", "昨收", "今開", "今高", "今低", "今收",
+            "漲跌%", "跳空%", "盤中%"]
     sub = ""
     if sostats:
         sub = (f"　今日均跳空 {sostats['gap']:+.2f}%、均盤中 {sostats['oc']:+.2f}%"
                f"（盤中走低 {sostats['oc_down']}/{sostats['n']} 檔）")
     h = (f'<h2>🎯 昨日隔日沖鎖碼候選 → 今日走勢（{so["date"]} 精選 → {so.get("trade_date", "今日")} 開高低收）</h2>'
-         f'<p class="note">具體驗證『開高走低』：跳空%＝隔夜高開幅度(今開 vs 昨收)、'
+         f'<p class="note">鎖碼淨額＝當時主力買了多少(pick 當日前15買+前15賣淨額，🔴淨買/🟢淨賣)。'
+         f'具體驗證『開高走低』：跳空%＝隔夜高開幅度(今開 vs 昨收)、'
          f'盤中%＝開盤後走勢(今收 vs 今開，🔴正=開低走高/守住、🟢負=開高走低)。{sub}'
          f'<br>⚠️ 方向不穩(可能軋空續強)、edge 薄、非投資建議。</p>')
-    h += _table(df, cols, ["漲跌%", "跳空%", "盤中%"])
+    h += _table(df, cols, ["鎖碼淨額", "漲跌%", "跳空%", "盤中%"])
     return h
 
 

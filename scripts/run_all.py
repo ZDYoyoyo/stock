@@ -636,11 +636,12 @@ def main():
             if sostats:
                 sline = (f"　今日均跳空 {sostats['gap']:+.2f}%、均盤中 {sostats['oc']:+.2f}%"
                          f"（盤中走低 {sostats['oc_down']}/{sostats['n']} 檔）")
-            f.write("> 具體驗證『開高走低』：跳空%＝隔夜高開(今開vs昨收)、"
+            f.write("> 鎖碼淨額＝當時主力買了多少(pick 當日前15買+前15賣淨額)。"
+                    "具體驗證『開高走低』：跳空%＝隔夜高開(今開vs昨收)、"
                     f"盤中%＝開盤後走勢(今收vs今開，正=守住/走高、負=開高走低)。{sline}\n")
             f.write("> ⚠️ 方向不穩(可能軋空續強)、edge 薄、非投資建議。\n\n")
-            sdf = pd.DataFrame(so["rows"])[["stock_id", "name", "昨收", "今開", "今高",
-                                            "今低", "今收", "漲跌%", "跳空%", "盤中%"]]
+            sdf = pd.DataFrame(so["rows"])[["stock_id", "name", "鎖碼淨額", "昨收", "今開",
+                                            "今高", "今低", "今收", "漲跌%", "跳空%", "盤中%"]]
             sdf = sdf.rename(columns={"stock_id": "代號", "name": "名稱"})
             f.write(sdf.to_markdown(index=False) + "\n")
         # 昨日精選今日追蹤（波段T11/T16 + 當沖前15 → 今天表現+原因）

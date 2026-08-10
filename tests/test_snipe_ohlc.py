@@ -32,7 +32,8 @@ def _seed():
     with db.connect() as conn:
         db.upsert(conn, "price", price)
     pt.save("D1", {"隔日沖鎖碼": pd.DataFrame(
-        [{"stock_id": "9999", "name": "妖股"}, {"stock_id": "8888", "name": "強股"}])}, n=15)
+        [{"stock_id": "9999", "name": "妖股", "今主力淨額": 1234},
+         {"stock_id": "8888", "name": "強股", "今主力淨額": -50}])}, n=15)
 
 
 def test_snipe_ohlc_computes_gap_and_oc():
@@ -46,6 +47,8 @@ def test_snipe_ohlc_computes_gap_and_oc():
     assert r["9999"]["盤中%"] == -5.56
     assert r["9999"]["今高"] == 110 and r["9999"]["今低"] == 101
     assert r["9999"]["漲跌%"] == 2.0
+    assert r["9999"]["鎖碼淨額"] == 1234        # 存檔時記下的當日主力淨額(買多少)
+    assert r["8888"]["鎖碼淨額"] == -50
     # 8888：昨收50→今開49(跳空-2%)、今收54(盤中 (54-49)/49=+10.2% 開低走高)
     assert r["8888"]["跳空%"] == -2.0
     assert r["8888"]["盤中%"] == 10.2
