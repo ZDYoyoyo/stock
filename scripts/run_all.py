@@ -353,9 +353,10 @@ def main():
         print("[長期] 價值+成長+配息（較慢）…")
         try:
             dflt = lt.run(verbose=False)
-        except SystemExit as e:
-            # 長期軌資料源（TWSE 估值）一時抓不到不該讓整份日報產不出來 → 優雅降級
-            print(f"   ⚠️ 長期軌略過（{e}）")
+        except (Exception, SystemExit) as e:
+            # 長期軌資料源（TWSE 估值/FinMind 財報）一時抓不到（含 502 等網路錯誤）
+            # 不該讓整份日報產不出來 → 優雅降級略過本軌，其餘照常輸出
+            print(f"   ⚠️ 長期軌略過（{type(e).__name__}: {e}）")
             dflt = None
 
     from src import portfolio as pf

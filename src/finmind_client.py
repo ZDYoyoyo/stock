@@ -44,6 +44,12 @@ def fetch(dataset: str, start_date: str, end_date: str | None = None,
             print(f"  [FinMind] 限流/額度({resp.status_code})，等 {wait}s 後重試…")
             time.sleep(wait)
             continue
+        if resp.status_code >= 500:
+            # 伺服器暫時性錯誤(502 Bad Gateway/503/504 等)→ 退避重試，別讓一次抖動炸掉整份日報
+            wait = 5 * (attempt + 1)
+            print(f"  [FinMind] 伺服器暫時錯誤({resp.status_code})，等 {wait}s 後重試…")
+            time.sleep(wait)
+            continue
         resp.raise_for_status()
         payload = resp.json()
         if payload.get("status") != 200:
