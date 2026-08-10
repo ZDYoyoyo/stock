@@ -46,13 +46,17 @@ def _regulars(sid: str, dates: list[str]) -> set:
     return {k for k, c in hits.items() if c >= _MIN_HITS}
 
 
-def run(gain_th: float = _GAIN_TH, top_n: int = _TOP_N, lookback: int = _LOOKBACK) -> pd.DataFrame:
+def run(gain_th: float = _GAIN_TH, top_n: int = _TOP_N, lookback: int = _LOOKBACK,
+        asof: str | None = None) -> pd.DataFrame:
+    """asof=None → 用 DB 最新交易日；給日期則以該日為『今日』(供回填舊日精選/回測)。"""
     with connect() as conn:
         price = pd.read_sql("SELECT date, stock_id, close, volume FROM price", conn)
         info = pd.read_sql("SELECT stock_id, stock_name, type, industry FROM stock_info", conn)
     if price.empty:
         return pd.DataFrame(columns=_COLS)
     dates = sorted(price["date"].unique())
+    if asof:
+        dates = [d for d in dates if d <= asof]      # 以 asof 為『今日』(含)，模擬當時盤後
     if len(dates) < 2:
         return pd.DataFrame(columns=_COLS)
     today, prev = dates[-1], dates[-2]

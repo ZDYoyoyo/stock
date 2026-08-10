@@ -568,7 +568,8 @@ def main():
     from src import picks_tracker as pt
     ft = pt.followthrough(today)
     ftstats = pt.summary_stats(ft) if ft else {}
-    pt.save(today, {"波段T11": df11, "波段T16": df16, "當沖": dfdt}, n=15)
+    pt.save(today, {"波段T11": df11, "波段T16": df16, "當沖": dfdt,
+                    "隔日沖鎖碼": dfsnipe}, n=15)
     # 持股籌碼歸因算一次，.md 與 .html 共用（確保兩份內容一致）
     pf_attr = _holdings_attribution(pf_view) if not pf_view.empty else []
 
