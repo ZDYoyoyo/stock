@@ -59,6 +59,21 @@ _GROUP_HEAD = "今/10/20/60日"
 # 多數軌＝今日收盤、第6軌＝close、追蹤區＝今收、持股表＝現價。標到 <td data-price> 供 JS 篩選。
 _PRICE_COLS = ["今日收盤", "close", "現價", "今收"]
 
+# 代號欄（各表第一欄）：多數軌＝stock_id、持股表＝代號。這格做成 K 線圖外連。
+_ID_COLS = ["stock_id", "代號"]
+# 點代號開該檔 K 線圖（Goodinfo，免分上市/上櫃、每檔一種網址最穩，新分頁開啟）。
+_KCHART_URL = "https://goodinfo.tw/tw/ShowK_Chart.asp?STOCK_ID={sid}"
+
+
+def _klink(sid, disp=None) -> str:
+    """把代號包成 Goodinfo K 線圖連結（新分頁）。disp 為顯示文字（預設＝代號）。"""
+    s = str(sid).strip()
+    d = disp if disp is not None else s
+    if not s or s in ("—", "nan", "None"):
+        return d
+    return (f'<a class="klink" href="{_KCHART_URL.format(sid=s)}" target="_blank" '
+            f'rel="noopener" title="開 {s} K線圖（Goodinfo，新分頁）">{d}</a>')
+
 
 def group_source_cols():
     """所有分組來源欄（供 MD 端補進 disp 供堆疊；HTML 端讀整列不需要）。"""
@@ -159,6 +174,9 @@ tbody tr:hover td:first-child { background: #eef3fb; }
 .pxctrl button { font-size:12px; padding:3px 10px; border:1px solid #b8c0cc; border-radius:6px;
   background:#fff; cursor:pointer; margin-left:6px; }
 .pxctrl .pxhint { font-weight:400; color:#158a4e; }
+/* 代號→K線圖外連：看起來像代號、虛線底線暗示可點 */
+a.klink { color:inherit; text-decoration:none; border-bottom:1px dotted #8896a8; cursor:pointer; }
+a.klink:hover { color:#1e63d0; border-bottom-color:#1e63d0; }
 .star { background:#fffbe6; border:1px solid #ffe28a; border-radius:8px; padding:10px 14px; }
 .disclaimer { color:#999; font-size:12px; margin-top:20px; }
 @media (prefers-color-scheme: dark) {
@@ -174,6 +192,7 @@ tbody tr:hover td:first-child { background: #eef3fb; }
   .colctrl button { background:#2a2f37; color:#e6e6e6; border-color:#444; }
   .pxctrl { background:#20242b; border-color:#333a44; color:#cdd6e2; }
   .pxctrl input, .pxctrl button { background:#2a2f37; color:#e6e6e6; border-color:#444; }
+  a.klink:hover { color:#6db3ff; border-bottom-color:#6db3ff; }
 }
 """
 
@@ -215,6 +234,7 @@ def _table(df: pd.DataFrame, cols, signed_cols) -> str:
             hide.update(col for col, _ in srcs if col != anchor)
     cols = [c for c in cols if c in df.columns and c not in hide]
     price_col = next((c for c in _PRICE_COLS if c in cols), None)  # 這張表用哪欄當收盤價
+    id_col = next((c for c in _ID_COLS if c in cols), None)        # 這張表哪欄是代號（做 K 線外連）
     head = ""
     for c in cols:
         if c in MERGE_GROUPS and c in df.columns:
@@ -236,7 +256,8 @@ def _table(df: pd.DataFrame, cols, signed_cols) -> str:
                 elif v < 0:
                     style = f"color:{_DOWN};font-weight:600"
             px = f' data-price="{v}"' if c == price_col and isinstance(v, (int, float)) and pd.notna(v) else ""
-            tds += f'<td data-col="{c}"{px} style="{style}">{_fmt(v)}</td>'
+            disp = _klink(v) if c == id_col else _fmt(v)  # 代號格→K線外連
+            tds += f'<td data-col="{c}"{px} style="{style}">{disp}</td>'
         body += f"<tr>{tds}</tr>"
     return f'<div class="tblwrap"><table><thead><tr>{head}</tr></thead><tbody>{body}</tbody></table></div>'
 
@@ -262,7 +283,7 @@ def _attr_html(attr) -> str:
     """持股今日籌碼歸因（今 vs 昨）— 對齊 .md 的『持股今日籌碼歸因』段。"""
     if not attr:
         return ""
-    lis = "".join(f"<li><b>{sid} {name}</b>：{line}</li>" for sid, name, line in attr)
+    lis = "".join(f"<li><b>{_klink(sid, f'{sid} {name}')}</b>：{line}</li>" for sid, name, line in attr)
     return ('<h3>📊 持股今日籌碼歸因（今 vs 昨，自動）</h3>'
             f'<ul class="ft">{lis}</ul>')
 
@@ -283,7 +304,8 @@ def _followthrough_html(ft, ftstats) -> str:
                 cs = f'<span style="color:{color};font-weight:600">{c:+.2f}%</span>'
             else:
                 cs = "—"
-            h += (f"<li>#{r['rank']} <b>{r['stock_id']} {r['name']}</b> "
+            lbl = f"{r['stock_id']} {r['name']}"
+            h += (f"<li>#{r['rank']} <b>{_klink(r['stock_id'], lbl)}</b> "
                   f"今日 {cs} → {r['one_line']}</li>")
         h += "</ul>"
     return h
@@ -430,7 +452,9 @@ def build(today, reg, glob_lines, sox, blocks, intersection=None,
 <title>台股每日整合報告 {today}</title><style>{_CSS}</style></head>
 <body><div class="wrap">
 <h1>台股每日整合報告</h1><div class="sub">{today}　·　研究用途，非投資建議</div>
-{banner}{_pxctrl()}{_colctrl(blocks)}{body}
+{banner}
+<p class="note">💡 點<b>股票代號</b>可開該檔 K 線圖（Goodinfo，新分頁開啟）</p>
+{_pxctrl()}{_colctrl(blocks)}{body}
 <p class="note" style="margin-top:18px">{GLOSSARY}</p>
 <div class="disclaimer">⚠️ 本報告為候選觀察名單，非投資建議。紅漲綠跌為台股慣例。</div>
 </div>{_COLCTRL_JS}{_PX_JS}</body></html>"""

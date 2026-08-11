@@ -72,6 +72,22 @@ def test_price_tag_falls_back_to_close_then_absent():
     assert "data-price" not in rh._table(noprice, ["stock_id", "name", "鎖碼淨額"], [])
 
 
+def test_id_cell_links_to_kchart():
+    """代號欄→Goodinfo K 線圖外連（新分頁）；stock_id 與 代號 兩種欄名都涵蓋。"""
+    a = rh._table(pd.DataFrame([{"stock_id": "2330", "name": "台積電", "close": 1080.0}]),
+                  ["stock_id", "name", "close"], [])
+    assert 'href="https://goodinfo.tw/tw/ShowK_Chart.asp?STOCK_ID=2330"' in a
+    assert 'target="_blank"' in a and 'class="klink"' in a
+    b = rh._table(pd.DataFrame([{"代號": "1101", "名稱": "台泥", "現價": 38.0}]),
+                  ["代號", "名稱", "現價"], [])
+    assert "STOCK_ID=1101" in b
+
+
+def test_klink_passthrough_on_blank():
+    assert rh._klink("") == ""                     # 空代號不做連結
+    assert "STOCK_ID=2330" in rh._klink("2330")
+
+
 def test_price_filter_control_and_js_present():
     df = pd.DataFrame([{"stock_id": "2330", "name": "台積電", "今日收盤": 1085.0}])
     page = rh.build("2026-08-11", {"regime": "中性"}, ["x"], "sox",
