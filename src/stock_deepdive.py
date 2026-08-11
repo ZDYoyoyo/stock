@@ -252,6 +252,67 @@ def dividends(sid: str, years: int = 6) -> tuple[pd.DataFrame, int]:
     return pd.DataFrame(rows).tail(years).reset_index(drop=True), streak
 
 
+def financial_health(sid: str, quarters: int = 6) -> pd.DataFrame:
+    """財務體質健檢（近 N 季）：負債比%/流動比%/每股淨值/單季營運CF億/獲利含金量%/自由現金流億。
+
+    資料：資產負債表(時點值)＋現金流量表(累計YTD→去累計還原單季)＋損益表(單季淨利，算含金量)。
+    ⚠️ 現金流是**累計**(年內遞增、跨年重置)，同年內 diff 還原單季、Q1=YTD；不還原會把含金量算爆。
+    """
+    from .finmind_client import fetch
+    bs = fetch("TaiwanStockBalanceSheet", start_date="2022-01-01", data_id=sid)
+    cf = fetch("TaiwanStockCashFlowsStatement", start_date="2022-01-01", data_id=sid)
+    fs = fetch("TaiwanStockFinancialStatements", start_date="2022-01-01", data_id=sid)
+    if not bs and not cf:
+        return pd.DataFrame()
+
+    def by_date(data):
+        out: dict[str, dict] = {}
+        for d in data:
+            out.setdefault(d["date"], {})[d.get("type")] = d.get("value")
+        return out
+
+    B, C, F = by_date(bs), by_date(cf), by_date(fs)
+
+    def single_q(store, key):
+        """累計YTD → 單季值：{date: 單季}。同年內減前一季、Q1(≤3月)＝YTD。"""
+        out, dates = {}, sorted(store)
+        for dt in dates:
+            v = store[dt].get(key)
+            if v is None:
+                out[dt] = None
+                continue
+            y, m = int(dt[:4]), int(dt[5:7])
+            if m <= 3:
+                out[dt] = v
+            else:
+                prev = [d for d in dates if d < dt and int(d[:4]) == y]
+                pv = store[prev[-1]].get(key) if prev else None
+                out[dt] = v - pv if pv is not None else None
+        return out
+
+    ocf_q = single_q(C, "CashFlowsFromOperatingActivities")
+    capex_q = single_q(C, "PropertyAndPlantAndEquipment")   # 已為負(現金流出)
+
+    rows = []
+    for dt in sorted(set(B) | set(C)):
+        b = B.get(dt, {})
+        ta, li = b.get("TotalAssets"), b.get("Liabilities")
+        ca, cl = b.get("CurrentAssets"), b.get("CurrentLiabilities")
+        eq, cap = b.get("EquityAttributableToOwnersOfParent"), b.get("CapitalStock")
+        ocf, capex = ocf_q.get(dt), capex_q.get(dt)
+        ni = F.get(dt, {}).get("IncomeAfterTaxes")
+        rows.append({
+            "季別": dt[:7],
+            "負債比%": round(li / ta * 100, 1) if ta and li is not None else None,
+            "流動比%": round(ca / cl * 100) if cl and ca is not None else None,
+            "每股淨值": round(eq / (cap / 10), 2) if eq and cap else None,   # 權益÷(股本/面額10)
+            "營運CF億": round(ocf / 1e8, 1) if ocf is not None else None,
+            "含金量%": round(ocf / ni * 100) if ocf is not None and ni not in (None, 0) else None,
+            "自由現金流億": round((ocf + capex) / 1e8, 1) if ocf is not None and capex is not None else None,
+        })
+    return pd.DataFrame(rows).tail(quarters).reset_index(drop=True)
+
+
 # ---- 分點（需 Sponsor）----
 
 def _branch_nets(sid: str, dates: list[str]) -> dict:

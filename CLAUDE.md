@@ -126,12 +126,15 @@ python -m scripts.sync_data load               # 由 CSV 重建 stock.db
   🚀**分點本機快取**：`_branch_net` 把聚合後 `{分點:淨}` 存 DB `broker_net`(JSON、**全保真、快取＝實算相同**)，
   同檔日重用免重抓(實測 1100x：1.4s→0.001s；今=明的昨、深掘重跑同檔、回測全受益)。⚠️**本機加速用不進 git CSV**
   (全市場一年 ~1GB 太大；雲端無快取有額度重抓即可)。`prune_cache(keep_days=60)` run_all `_update` 每日修剪控大小。
-- `src/stock_deepdive.py` + `scripts/run_stock.py` — **個股深掘([6])**：單檔『籌碼病歷表』(.md+.html)。
+- `src/stock_deepdive.py` + `scripts/run_stock.py` — **個股深掘([6])**：單檔『深掘病歷表』(.md+.html)，籌碼＋技術＋基本面全含。
   DB 拉齊價量/法人/資券/借券時間序列＋千張大戶週趨勢＋當沖比時間序列(`daytrade_timeline`)；分點(Sponsor)出逐日主力淨額/隔日沖賣壓%＋
   **隔日沖常客名單**(窗內反覆昨買今賣的分點→這檔的隔日沖大戶)＋最新日 Top 買/賣分點。分點逐日單查(N日=N call)、
-  **走 broker_net 本機快取**(重跑同檔幾乎免抓)。HTML 另有 **📈圖譜([7])**：收盤/主力淨額/隔日沖賣壓%/當沖比%/借券/大戶
-  的內嵌 SVG 迷你圖(`src/svgchart.py`，自足無外部庫、紅正綠負、tooltip)。用法 `python -m scripts.run_stock 1303 --days 30`→`reports/stock/`。GUI「個股籌碼深掘」鈕＋`6_個股深掘.bat`。
-- `src/svgchart.py` — 極簡 inline SVG 迷你圖(`bars` 長條/紅正綠負、`line` 折線)：純 SVG+<title> tooltip、CSP-safe、明暗皆清楚。供深掘圖譜用。
+  **走 broker_net 本機快取**(重跑同檔幾乎免抓)。
+  📌**技術面(2026-08)**：`tech_snapshot`(複用 tech_signal/chip_signal/verdict→均線排列/季線年線/20MA乖離/52週位置/量能倍數/成交額＋綜合定調🔴/⚪/🟢)＋`ma_series`(收盤+MA5/20/60 疊圖，用完整歷史算 MA)。純 DB 免費。
+  📌**基本面(2026-08，FinMind 逐檔~4~6 call)**：`monthly_revenue`(近12月營收 YoY/MoM/累計YoY)、`profitability`(近8季毛利率/營益率/淨利率/單季EPS/EPS年增，損益表**單季值**)、`valuation_snapshot`(PER/PBR/殖利率＋PER近1年位置%＋序列)、`dividends`(近年配息＋連續配息年數；⚠️FinMind `year`＝『114年第2季』民國+季，自解析民國年**按年彙總**、季配股不誤當年數，故不複用 `enrich.dividend_years`)。
+  📌**財務體質(2026-08，三表健檢)**：`financial_health`(負債比/流動比/每股淨值/單季營運CF/含金量%/自由現金流)。⚠️**現金流是累計 YTD**(年內遞增·跨年重置)→`single_q` 同年內 diff **去累計還原單季**、Q1=YTD，不還原含金量會算爆；損益表淨利本就單季直接比。
+  HTML 有 **📈圖譜([7])**：收盤+均線/主力淨額/隔日沖賣壓%/當沖比%/借券/大戶＋基本面(營收YoY/EPS/PER)＋財務體質(負債比/營運CF)的內嵌 SVG 迷你圖。抓不到(免 Sponsor/無財報)graceful 留白。用法 `python -m scripts.run_stock 1303 --days 30`→`reports/stock/`。GUI「個股籌碼深掘」鈕＋`6_個股深掘.bat`。
+- `src/svgchart.py` — 極簡 inline SVG 迷你圖(`bars` 長條/紅正綠負、`line` 折線、`lines` 多序列共用y軸疊圖供均線用)：純 SVG+<title> tooltip、CSP-safe、明暗皆清楚。供深掘圖譜用。
 
 ## 回測框架（P1–P6，2026-07 量化顧問專案已建）
 

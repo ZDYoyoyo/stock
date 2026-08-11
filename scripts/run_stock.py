@@ -77,7 +77,7 @@ def _charts(tl, bt, dtl, ht, mas=None) -> str:
 # 各表的「有正負、要上色」欄（紅正綠負，台股慣例）
 _SIGNED = {"漲跌%", "外資", "投信", "自營", "融資增減", "融券增減", "借券增減",
            "主力淨額", "大戶週增pp", "20MA乖離%", "EPS單季", "EPS年增%", "營收YoY%",
-           "營收MoM%", "累計YoY%", "自由現金流億"}
+           "營收MoM%", "累計YoY%", "自由現金流億", "營運CF億"}
 
 # 技術面卡要顯示的欄（趨勢/位置導向；籌碼細節見下面時間序列表）
 _TECH_CARD = ["定調", "均線排列", "季線年線", "20MA乖離%", "52週位置%", "量能倍數", "成交額億"]
@@ -121,6 +121,29 @@ def _fund_charts(rev, prof, val) -> str:
         blk("本益比 PER（近1年）",
             sc.line(val["_per"], val.get("_dates"), unit="", fmt="{:,.1f}", color="#8e44ad"),
             "PER 走勢：低=相對便宜、高=相對貴（位置%見估值卡）")
+    if not blocks:
+        return ""
+    return f'<div class="chgrid">{"".join(blocks)}</div>'
+
+
+def _health_charts(health) -> str:
+    """財務體質迷你圖（HTML）：負債比%折線／單季營運CF長條。只放有資料的。"""
+    if health is None or health.empty:
+        return ""
+    blocks = []
+
+    def blk(title, svg, cap=""):
+        c = f'<div class="chcap">{cap}</div>' if cap else ""
+        blocks.append(f'<div class="chblk"><div class="chttl">{title}</div>{svg}{c}</div>')
+
+    dt = list(health["季別"])
+    if health["負債比%"].notna().any():
+        blk("負債比%（逐季）", sc.line(list(health["負債比%"]), dt, unit="%", fmt="{:,.1f}",
+                                    color="#e67e22"), "總負債÷總資產：越低財務越穩健（產業別看）")
+    if health["營運CF億"].notna().any():
+        blk("單季營運現金流（億·紅正綠負）",
+            sc.bars(list(health["營運CF億"]), dt, signed=True, unit=" 億", fmt="{:,.1f}"),
+            "本業收現：持續為正＝獲利有現金撐（已去累計還原單季）")
     if not blocks:
         return ""
     return f'<div class="chgrid">{"".join(blocks)}</div>'
@@ -223,9 +246,10 @@ def main():
         prof = dd.profitability(sid)
         val = dd.valuation_snapshot(sid)
         divs, div_streak = dd.dividends(sid)
+        health = dd.financial_health(sid)
         has_fund = not rev.empty or not prof.empty or bool(val)
     except Exception as e:
-        rev = prof = divs = pd.DataFrame(); val = {}; div_streak = 0; has_fund = False
+        rev = prof = divs = health = pd.DataFrame(); val = {}; div_streak = 0; has_fund = False
         print(f"   ⚠️ 基本面抓取略過（{type(e).__name__}: {e}）")
     print(f"   技術面：{tech.get('定調', '—')}　基本面：{'有' if has_fund else '無'}　"
           f"分點：{'可用' if has_broker else '不可用(需 Sponsor)'}")
@@ -257,6 +281,12 @@ def main():
     else:
         md.append("\n## 🧾 基本面")
         md.append("（基本面資料不可用；需 FinMind 且該檔有財報/營收）\n")
+    # 財務體質（三表健檢）
+    if health is not None and not health.empty:
+        md.append("\n## 🏥 財務體質（負債／流動／淨值／現金流）")
+        md.append("> 負債比=總負債÷總資產(低=穩)；流動比=流動資產÷流動負債(>100%短期無虞)；"
+                  "含金量=營運現金流÷稅後淨利(>100%獲利是真金)；營運CF/自由現金流已去累計還原單季。\n")
+        md.append(_md_table(health))
     md.append("\n## 📈 圖譜")
     md.append("> 迷你走勢圖（收盤+均線／主力淨額／隔日沖賣壓%／當沖比%／借券／大戶）請見同名 **.html**"
               "（可滑鼠移上去看數值）；下列表格為同資料的逐日明細。\n")
@@ -295,6 +325,12 @@ def main():
         body += sec("🧾 基本面（營收動能／獲利／估值／配息）", fh)
     else:
         body += sec("🧾 基本面", "<p>（基本面資料不可用；需 FinMind 且該檔有財報/營收）</p>")
+    # 財務體質（三表健檢）
+    if health is not None and not health.empty:
+        hh = ('<p class="note">負債比=總負債÷總資產(低=穩)；流動比=流動資產÷流動負債(>100%短期無虞)；'
+              '含金量=營運現金流÷稅後淨利(>100%獲利是真金)；營運CF/自由現金流已去累計還原單季。</p>')
+        hh += _health_charts(health) + _html_table(health)
+        body += sec("🏥 財務體質（負債／流動／淨值／現金流）", hh)
     body += _charts(tl, bt, dtl, ht, mas)
     body += sec(f"📊 近 {len(tl)} 交易日籌碼時間序列", _html_table(tl))
     body += sec("🏦 分點主力淨額 + 隔日沖賣壓%（逐日）",
