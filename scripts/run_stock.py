@@ -32,8 +32,8 @@ _CHART_CSS = """
 """
 
 
-def _charts(tl, bt, dtl, ht) -> str:
-    """組『圖譜』區塊：只放有資料的迷你圖（收盤/主力淨額/隔日沖賣壓%/當沖比%/借券/大戶）。"""
+def _charts(tl, bt, dtl, ht, mas=None) -> str:
+    """組『圖譜』區塊：只放有資料的迷你圖（收盤+均線/主力淨額/隔日沖賣壓%/當沖比%/借券/大戶）。"""
     blocks = []
 
     def blk(title, svg, cap=""):
@@ -41,8 +41,15 @@ def _charts(tl, bt, dtl, ht) -> str:
         blocks.append(f'<div class="chblk"><div class="chttl">{title}</div>{svg}{c}</div>')
 
     d = list(tl["date"])
-    blk("收盤價", sc.line(list(tl["收盤"]), d, unit="", fmt="{:,.2f}", color="#2d7ef7"),
-        "藍線＝收盤，對照下列籌碼變化發生在什麼價位")
+    # 收盤＋均線疊圖（藍收盤／橙MA5／紫MA20／綠MA60，共用價格軸）
+    if mas and mas.get("收盤"):
+        series = [("收盤", "#2d7ef7", mas["收盤"]), ("MA5", "#e67e22", mas["MA5"]),
+                  ("MA20", "#8e44ad", mas["MA20"]), ("MA60", "#158a4e", mas["MA60"])]
+        blk("收盤 + 均線", sc.lines(series, mas["dates"], fmt="{:,.2f}"),
+            "🔵收盤 🟠MA5 🟣MA20 🟢MA60；收盤在均線上方＝偏多、均線糾結＝盤整")
+    else:
+        blk("收盤價", sc.line(list(tl["收盤"]), d, unit="", fmt="{:,.2f}", color="#2d7ef7"),
+            "藍線＝收盤，對照下列籌碼變化發生在什麼價位")
     if bt is not None and not bt.empty:
         bd = list(bt["date"])
         blk("主力淨額（逐日·紅買綠賣）",
@@ -69,7 +76,19 @@ def _charts(tl, bt, dtl, ht) -> str:
 
 # 各表的「有正負、要上色」欄（紅正綠負，台股慣例）
 _SIGNED = {"漲跌%", "外資", "投信", "自營", "融資增減", "融券增減", "借券增減",
-           "主力淨額", "大戶週增pp"}
+           "主力淨額", "大戶週增pp", "20MA乖離%", "EPS單季", "EPS年增%", "營收YoY%",
+           "營收MoM%", "累計YoY%", "自由現金流億"}
+
+# 技術面卡要顯示的欄（趨勢/位置導向；籌碼細節見下面時間序列表）
+_TECH_CARD = ["定調", "均線排列", "季線年線", "20MA乖離%", "52週位置%", "量能倍數", "成交額億"]
+
+
+def _tech_card_df(tech: dict) -> pd.DataFrame:
+    """技術面 snapshot dict → 單列 DataFrame（只留有值的欄），供 _md_table/_html_table 對齊輸出。"""
+    if not tech:
+        return pd.DataFrame()
+    row = {k: tech.get(k) for k in _TECH_CARD if tech.get(k) not in (None, "", "—")}
+    return pd.DataFrame([row]) if row else pd.DataFrame()
 
 
 def _md_table(df: pd.DataFrame) -> str:
@@ -104,11 +123,17 @@ _NOTE = ("📖 主力淨額＝當日前15大買超分點淨額＋前15大賣超�
          "借券餘額=法人真實空單(增=加空/減=回補)；千張大戶%為週頻。紅漲綠跌為台股慣例，研究用途非投資建議。")
 
 
-def _summary(sid, meta, tl, bt, reg):
+def _summary(sid, meta, tl, bt, reg, tech=None):
     """幾句規則式近況（只講資料看得到的，不過度解讀）。"""
     lines = []
     last = tl.iloc[-1]
     lines.append(f"最新 {last['date']}：收 {last['收盤']}（{last['漲跌%']:+}%）、量 {int(last['量']):,} 張")
+    if tech:
+        seg = f"綜合定調 {tech.get('定調', '—')}"
+        extra = [tech[k] for k in ("均線排列", "季線年線") if tech.get(k) not in (None, "", "—")]
+        if extra:
+            seg += "（" + "、".join(str(x) for x in extra) + "）"
+        lines.append(seg)
     if "借券增減" in tl.columns and pd.notna(last.get("借券增減")):
         d = int(last["借券增減"])
         lines.append(f"借券餘額 {int(last['借券餘額']):,} 張，昨→今 {d:+,}（{'法人加空⚠️' if d>0 else '法人回補'}）")
@@ -147,6 +172,9 @@ def main():
         raise SystemExit(f"找不到 {sid} 的價量資料（先跑 sync_data load / update_data）")
 
     print(f"[深掘] {sid} {meta['name']} 近 {len(tl)} 交易日 …")
+    tech = dd.tech_snapshot(sid)                    # 技術面卡（DB 免費）
+    mas = dd.ma_series(sid, list(tl["date"]))       # 收盤+均線疊圖
+    tech_df = _tech_card_df(tech)
     bt = dd.broker_timeline(sid, tl)
     reg = dd.daytrader_regulars(sid, tl)
     day = tl["date"].iloc[-1]
@@ -154,9 +182,9 @@ def main():
     ht = dd.holder_trend(sid)
     dtl = dd.daytrade_timeline(sid, tl)
     has_broker = not bt.empty
-    print(f"   分點：{'可用' if has_broker else '不可用(需 Sponsor)'}")
+    print(f"   技術面：{tech.get('定調', '—')}　分點：{'可用' if has_broker else '不可用(需 Sponsor)'}")
 
-    title = f"{sid} {meta['name']}（{meta['market']}{'・'+meta['industry'] if meta['industry'] else ''}）籌碼病歷表"
+    title = f"{sid} {meta['name']}（{meta['market']}{'・'+meta['industry'] if meta['industry'] else ''}）深掘病歷表"
     out_dir = OUTPUT_DIR.parent / "stock"
     out_dir.mkdir(parents=True, exist_ok=True)
     base = out_dir / f"{sid}_{meta['name']}_深掘"
@@ -164,10 +192,12 @@ def main():
     # ---- Markdown ----
     md = [f"# {title}", f"\n> 資料截至 {day}　·　研究用途，非投資建議（紅漲綠跌）", ""]
     md.append("## 📌 近況摘要")
-    for ln in _summary(sid, meta, tl, bt, reg):
+    for ln in _summary(sid, meta, tl, bt, reg, tech):
         md.append(f"- {ln}")
+    md.append("\n## 📐 技術面（均線趨勢／位置）")
+    md.append(_md_table(tech_df) if not tech_df.empty else "（技術面資料不足）\n")
     md.append("\n## 📈 圖譜")
-    md.append("> 迷你走勢圖（收盤／主力淨額／隔日沖賣壓%／當沖比%／借券／大戶）請見同名 **.html**"
+    md.append("> 迷你走勢圖（收盤+均線／主力淨額／隔日沖賣壓%／當沖比%／借券／大戶）請見同名 **.html**"
               "（可滑鼠移上去看數值）；下列表格為同資料的逐日明細。\n")
     md.append(f"\n## 📊 近 {len(tl)} 交易日籌碼時間序列")
     md.append(_md_table(tl))
@@ -189,9 +219,11 @@ def main():
     # ---- HTML（共用 report_html._CSS：sticky 表頭/首欄） ----
     def sec(h, inner):
         return f"<h2>{h}</h2>{inner}"
-    sm = "".join(f"<li>{ln}</li>" for ln in _summary(sid, meta, tl, bt, reg))
+    sm = "".join(f"<li>{ln}</li>" for ln in _summary(sid, meta, tl, bt, reg, tech))
     body = f'<div class="banner reg-neutral">📌 近況摘要<small><ul class="ft">{sm}</ul></small></div>'
-    body += _charts(tl, bt, dtl, ht)
+    body += sec("📐 技術面（均線趨勢／位置）",
+                _html_table(tech_df) if not tech_df.empty else "<p>（技術面資料不足）</p>")
+    body += _charts(tl, bt, dtl, ht, mas)
     body += sec(f"📊 近 {len(tl)} 交易日籌碼時間序列", _html_table(tl))
     body += sec("🏦 分點主力淨額 + 隔日沖賣壓%（逐日）",
                 _html_table(bt) if has_broker else "<p>（分點不可用；需 FinMind Sponsor）</p>")

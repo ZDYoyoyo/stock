@@ -95,6 +95,51 @@ def holder_trend(sid: str) -> pd.DataFrame:
     return df
 
 
+# ---- 技術面（DB 免費；複用 tech_signal/chip_signal/verdict，公式與五軌單一來源）----
+
+def tech_snapshot(sid: str) -> dict:
+    """技術面卡：均線排列/季線年線/20MA乖離%/52週位置%/成交額億＋量能倍數/籌碼訊號/連買賣＋綜合定調。
+
+    全走 DB。複用 tech_signal.compute()＋chip_signal.compute()（全市場算好挑本檔），
+    再用 verdict 投票出一句定調。查不到回 {}。
+    """
+    from . import tech_signal, chip_signal, verdict
+    row: dict = {"stock_id": sid}
+    for compute in (tech_signal.compute, chip_signal.compute):
+        try:
+            s = compute()
+        except Exception:
+            continue
+        if s is not None and not s.empty:
+            m = s[s["stock_id"] == sid]
+            if not m.empty:
+                row.update({k: v for k, v in m.iloc[0].to_dict().items() if k != "stock_id"})
+    row["定調"] = verdict.label(verdict._vote(pd.Series(row)))
+    return row
+
+
+def ma_series(sid: str, dates: list[str]) -> dict:
+    """收盤＋MA5/20/60 對齊 dates（用完整歷史算 MA，才不會窗頭幾根均線缺算）。無資料回 {}。"""
+    if not dates:
+        return {}
+    with connect() as c:
+        px = pd.read_sql("SELECT date, close FROM price WHERE stock_id=? ORDER BY date",
+                         c, params=(sid,))
+    if px.empty:
+        return {}
+    px = px.sort_values("date").reset_index(drop=True)
+    for n in (5, 20, 60):
+        px[f"MA{n}"] = px["close"].rolling(n).mean().round(2)
+    sub = px[px["date"].isin(dates)].reset_index(drop=True)
+    if sub.empty:
+        return {}
+    return {"dates": sub["date"].tolist(),
+            "收盤": sub["close"].round(2).tolist(),
+            "MA5": sub["MA5"].tolist(),
+            "MA20": sub["MA20"].tolist(),
+            "MA60": sub["MA60"].tolist()}
+
+
 # ---- 分點（需 Sponsor）----
 
 def _branch_nets(sid: str, dates: list[str]) -> dict:

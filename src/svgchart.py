@@ -69,6 +69,46 @@ def bars(values, dates=None, signed=False, unit="", fmt="{:,.0f}") -> str:
     return _svg("".join(parts), w)
 
 
+def lines(series, dates=None, unit="", fmt="{:,.2f}") -> str:
+    """多序列折線（**共用** y 範圍，供收盤＋均線疊圖）。
+
+    series＝[(label, color, values), …]；第一條(收盤)畫粗、其餘均線畫細。
+    圖例不畫進 SVG（preserveAspectRatio=none 會拉扁文字）→ 由呼叫端在圖說列出。
+    """
+    allv = []
+    for _, _, vals in series:
+        allv += [v for _, v in _clean(vals)]
+    if len(allv) < 2:
+        return "<p class='note'>（資料不足）</p>"
+    n = max((len(vals) for _, _, vals in series), default=0)
+    w = max(n * 16 + 16, 80)
+    step = (w - 16) / max(n - 1, 1)
+    lo, hi = min(allv), max(allv)
+    rng = (hi - lo) or 1
+
+    def X(i):
+        return 8 + i * step
+
+    def Y(v):
+        return _PADY + (hi - v) / rng * (_H - 2 * _PADY)
+
+    parts = []
+    for i, (lbl, color, vals) in enumerate(series):
+        pts = _clean(vals)
+        if len(pts) < 2:
+            continue
+        poly = " ".join(f"{X(j):.1f},{Y(v):.1f}" for j, v in pts)
+        sw = 1.8 if i == 0 else 1.1                       # 收盤粗、均線細
+        parts.append(f'<polyline fill="none" stroke="{color}" stroke-width="{sw:.1f}" '
+                     f'vector-effect="non-scaling-stroke" points="{poly}"/>')
+        if i == 0:                                        # 只在收盤線標點(tooltip看價位)
+            parts.append("".join(
+                f'<circle cx="{X(j):.1f}" cy="{Y(v):.1f}" r="1.6" fill="{color}">'
+                f'<title>{_esc(dates[j] if dates and j < len(dates) else j)}: {fmt.format(v)}{unit}</title></circle>'
+                for j, v in pts))
+    return _svg("".join(parts), w)
+
+
 def line(values, dates=None, unit="", fmt="{:,.2f}", color=_LINE) -> str:
     """折線圖（縮放到 [min,max]）；stroke 不隨拉伸變形。資料<2 點回提示。"""
     pts = _clean(values)
