@@ -79,8 +79,25 @@ _SIGNED = {"漲跌%", "外資", "投信", "自營", "融資增減", "融券增�
            "主力淨額", "大戶週增pp", "20MA乖離%", "EPS單季", "EPS年增%", "營收YoY%",
            "營收MoM%", "累計YoY%", "自由現金流億", "營運CF億"}
 
-# 技術面卡要顯示的欄（趨勢/位置導向；籌碼細節見下面時間序列表）
-_TECH_CARD = ["定調", "均線排列", "季線年線", "20MA乖離%", "52週位置%", "量能倍數", "成交額億"]
+# 技術面卡要顯示的欄（趨勢/位置導向；綜合定調改放頂端摘要、含基本面票，故卡片不再放定調）
+_TECH_CARD = ["均線排列", "季線年線", "20MA乖離%", "52週位置%", "量能倍數", "成交額億"]
+
+
+def _fund_vote(info: dict, health, flags) -> int:
+    """基本面票（±，併入綜合定調）：營收YoY／EPS年增／獲利含金量／財報紅旗。"""
+    v = 0
+    yoy = (info or {}).get("營收YoY%")
+    if yoy is not None:
+        v += 1 if yoy > 15 else (-1 if yoy < -10 else 0)
+    eg = (info or {}).get("EPS年增%")
+    if eg is not None:
+        v += 1 if eg > 15 else (-1 if eg < -15 else 0)
+    if health is not None and not health.empty and health["含金量%"].notna().any():
+        q = health["含金量%"].dropna().iloc[-1]
+        v += 1 if q >= 80 else (-1 if q < 40 else 0)   # 獲利有現金撐＝多、含金量太低＝空
+    if flags:
+        v -= 1                                          # 有任何財務紅旗→拉一票
+    return v
 
 
 def _tech_card_df(tech: dict) -> pd.DataFrame:
@@ -89,6 +106,19 @@ def _tech_card_df(tech: dict) -> pd.DataFrame:
         return pd.DataFrame()
     row = {k: tech.get(k) for k in _TECH_CARD if tech.get(k) not in (None, "", "—")}
     return pd.DataFrame([row]) if row else pd.DataFrame()
+
+
+def _flags_md(flags) -> str:
+    if not flags:
+        return "✅ 無明顯財務紅旗（營收/獲利/毛利未觸發地雷門檻）。\n"
+    return "🧨 **財務紅旗**（買進/續抱前留意）：\n" + "".join(f"- {f}\n" for f in flags)
+
+
+def _flags_html(flags) -> str:
+    if not flags:
+        return '<p class="note">✅ 無明顯財務紅旗（營收/獲利/毛利未觸發地雷門檻）。</p>'
+    items = "".join(f"<li>{f}</li>" for f in flags)
+    return f'<div class="warn">🧨 <b>財務紅旗</b>（買進/續抱前留意）：<ul>{items}</ul></div>'
 
 
 def _val_card_df(val: dict, streak: int) -> pd.DataFrame:
@@ -181,16 +211,17 @@ _NOTE = ("📖 主力淨額＝當日前15大買超分點淨額＋前15大賣超�
          "借券餘額=法人真實空單(增=加空/減=回補)；千張大戶%為週頻。紅漲綠跌為台股慣例，研究用途非投資建議。")
 
 
-def _summary(sid, meta, tl, bt, reg, tech=None):
+def _summary(sid, meta, tl, bt, reg, tech=None, vinfo=None):
     """幾句規則式近況（只講資料看得到的，不過度解讀）。"""
     lines = []
     last = tl.iloc[-1]
     lines.append(f"最新 {last['date']}：收 {last['收盤']}（{last['漲跌%']:+}%）、量 {int(last['量']):,} 張")
-    if tech:
-        seg = f"綜合定調 {tech.get('定調', '—')}"
-        extra = [tech[k] for k in ("均線排列", "季線年線") if tech.get(k) not in (None, "", "—")]
+    if vinfo:
+        seg = (f"綜合定調 {vinfo['label']}"
+               f"（技術+籌碼 {vinfo['tv']:+d}、基本面 {vinfo['fv']:+d}）")
+        extra = [tech[k] for k in ("均線排列", "季線年線") if tech and tech.get(k) not in (None, "", "—")]
         if extra:
-            seg += "（" + "、".join(str(x) for x in extra) + "）"
+            seg += "　" + "、".join(str(x) for x in extra)
         lines.append(seg)
     if "借券增減" in tl.columns and pd.notna(last.get("借券增減")):
         d = int(last["借券增減"])
@@ -251,8 +282,30 @@ def main():
     except Exception as e:
         rev = prof = divs = health = pd.DataFrame(); val = {}; div_streak = 0; has_fund = False
         print(f"   ⚠️ 基本面抓取略過（{type(e).__name__}: {e}）")
-    print(f"   技術面：{tech.get('定調', '—')}　基本面：{'有' if has_fund else '無'}　"
-          f"分點：{'可用' if has_broker else '不可用(需 Sponsor)'}")
+
+    # 財報紅旗（複用 landmine 財務紅旗邏輯，單一來源）＋ 綜合定調（技術+籌碼＋基本面票）
+    fin_flags, fin_info = [], {}
+    try:
+        from src.screeners.landmine import _fin_flags
+        fin_flags, fin_info = _fin_flags(sid)
+    except Exception as e:
+        print(f"   ⚠️ 財報紅旗略過（{type(e).__name__}: {e}）")
+    from src import verdict as _vd
+    tv = int(tech.get("_vote", 0))
+    fv = _fund_vote(fin_info, health, fin_flags)
+    vinfo = {"label": _vd.label(tv + fv), "tv": tv, "fv": fv}
+
+    # 同業比較（產業別走 FinMind industry_map；DB 成交額排序取同業大股）
+    peer_df = pd.DataFrame(); peer_industry = meta.get("industry", "")
+    try:
+        peers, peer_industry = dd.industry_peers(sid)
+        if peers:
+            peer_df = dd.peer_table(sid, meta["name"], val, rev, peers)
+    except Exception as e:
+        print(f"   ⚠️ 同業比較略過（{type(e).__name__}: {e}）")
+
+    print(f"   綜合定調：{vinfo['label']}(技{tv:+d}/基{fv:+d})　基本面：{'有' if has_fund else '無'}"
+          f"　紅旗：{len(fin_flags)}　同業：{len(peer_df)}　分點：{'可用' if has_broker else '不可用'}")
 
     title = f"{sid} {meta['name']}（{meta['market']}{'・'+meta['industry'] if meta['industry'] else ''}）深掘病歷表"
     out_dir = OUTPUT_DIR.parent / "stock"
@@ -262,8 +315,10 @@ def main():
     # ---- Markdown ----
     md = [f"# {title}", f"\n> 資料截至 {day}　·　研究用途，非投資建議（紅漲綠跌）", ""]
     md.append("## 📌 近況摘要")
-    for ln in _summary(sid, meta, tl, bt, reg, tech):
+    for ln in _summary(sid, meta, tl, bt, reg, tech, vinfo):
         md.append(f"- {ln}")
+    md.append("")
+    md.append(_flags_md(fin_flags))
     md.append("\n## 📐 技術面（均線趨勢／位置）")
     md.append(_md_table(tech_df) if not tech_df.empty else "（技術面資料不足）\n")
     # 基本面（FinMind）
@@ -287,6 +342,11 @@ def main():
         md.append("> 負債比=總負債÷總資產(低=穩)；流動比=流動資產÷流動負債(>100%短期無虞)；"
                   "含金量=營運現金流÷稅後淨利(>100%獲利是真金)；營運CF/自由現金流已去累計還原單季。\n")
         md.append(_md_table(health))
+    # 同業比較
+    if not peer_df.empty:
+        md.append(f"\n## 🆚 同業比較（{peer_industry}，依成交額取前 {len(peer_df)-1} 檔，★＝本檔）")
+        md.append("> 同產業估值/營收並排，看本檔相對貴或便宜、成長是否領先同業。\n")
+        md.append(_md_table(peer_df))
     md.append("\n## 📈 圖譜")
     md.append("> 迷你走勢圖（收盤+均線／主力淨額／隔日沖賣壓%／當沖比%／借券／大戶）請見同名 **.html**"
               "（可滑鼠移上去看數值）；下列表格為同資料的逐日明細。\n")
@@ -310,8 +370,9 @@ def main():
     # ---- HTML（共用 report_html._CSS：sticky 表頭/首欄） ----
     def sec(h, inner):
         return f"<h2>{h}</h2>{inner}"
-    sm = "".join(f"<li>{ln}</li>" for ln in _summary(sid, meta, tl, bt, reg, tech))
+    sm = "".join(f"<li>{ln}</li>" for ln in _summary(sid, meta, tl, bt, reg, tech, vinfo))
     body = f'<div class="banner reg-neutral">📌 近況摘要<small><ul class="ft">{sm}</ul></small></div>'
+    body += _flags_html(fin_flags)
     body += sec("📐 技術面（均線趨勢／位置）",
                 _html_table(tech_df) if not tech_df.empty else "<p>（技術面資料不足）</p>")
     # 基本面（FinMind）：估值+配息卡 → 迷你圖 → 營收/獲利/配息表
@@ -331,6 +392,11 @@ def main():
               '含金量=營運現金流÷稅後淨利(>100%獲利是真金)；營運CF/自由現金流已去累計還原單季。</p>')
         hh += _health_charts(health) + _html_table(health)
         body += sec("🏥 財務體質（負債／流動／淨值／現金流）", hh)
+    # 同業比較
+    if not peer_df.empty:
+        ph = ('<p class="note">同產業估值/營收並排，看本檔相對貴或便宜、成長是否領先同業'
+              f'（依成交額取前 {len(peer_df)-1} 檔，★＝本檔）。</p>') + _html_table(peer_df)
+        body += sec(f"🆚 同業比較（{peer_industry}）", ph)
     body += _charts(tl, bt, dtl, ht, mas)
     body += sec(f"📊 近 {len(tl)} 交易日籌碼時間序列", _html_table(tl))
     body += sec("🏦 分點主力淨額 + 隔日沖賣壓%（逐日）",

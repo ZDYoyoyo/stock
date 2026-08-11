@@ -133,6 +133,7 @@ python -m scripts.sync_data load               # 由 CSV 重建 stock.db
   📌**技術面(2026-08)**：`tech_snapshot`(複用 tech_signal/chip_signal/verdict→均線排列/季線年線/20MA乖離/52週位置/量能倍數/成交額＋綜合定調🔴/⚪/🟢)＋`ma_series`(收盤+MA5/20/60 疊圖，用完整歷史算 MA)。純 DB 免費。
   📌**基本面(2026-08，FinMind 逐檔~4~6 call)**：`monthly_revenue`(近12月營收 YoY/MoM/累計YoY)、`profitability`(近8季毛利率/營益率/淨利率/單季EPS/EPS年增，損益表**單季值**)、`valuation_snapshot`(PER/PBR/殖利率＋PER近1年位置%＋序列)、`dividends`(近年配息＋連續配息年數；⚠️FinMind `year`＝『114年第2季』民國+季，自解析民國年**按年彙總**、季配股不誤當年數，故不複用 `enrich.dividend_years`)。
   📌**財務體質(2026-08，三表健檢)**：`financial_health`(負債比/流動比/每股淨值/單季營運CF/含金量%/自由現金流)。⚠️**現金流是累計 YTD**(年內遞增·跨年重置)→`single_q` 同年內 diff **去累計還原單季**、Q1=YTD，不還原含金量會算爆；損益表淨利本就單季直接比。
+  📌**同業比較+財報紅旗+基本面定調(2026-08)**：`industry_peers`(產業別走 `enrich.industry_map` FinMind——**DB stock_info.industry 是空的**；同業依 DB 成交額排序取前 n)＋`peer_table`(PER/PBR/殖利率/月營收YoY 並排、★本檔)；財報紅旗複用 `landmine._fin_flags`(單一來源)出 callout；綜合定調＝`tech_snapshot._vote`(技術+籌碼)＋run_stock `_fund_vote`(營收YoY/EPS年增/含金量/紅旗)兩票相加→`verdict.label`（**不改共用 `verdict._vote`**，避免影響五軌日報）。
   HTML 有 **📈圖譜([7])**：收盤+均線/主力淨額/隔日沖賣壓%/當沖比%/借券/大戶＋基本面(營收YoY/EPS/PER)＋財務體質(負債比/營運CF)的內嵌 SVG 迷你圖。抓不到(免 Sponsor/無財報)graceful 留白。用法 `python -m scripts.run_stock 1303 --days 30`→`reports/stock/`。GUI「個股籌碼深掘」鈕＋`6_個股深掘.bat`。
 - `src/svgchart.py` — 極簡 inline SVG 迷你圖(`bars` 長條/紅正綠負、`line` 折線、`lines` 多序列共用y軸疊圖供均線用)：純 SVG+<title> tooltip、CSP-safe、明暗皆清楚。供深掘圖譜用。
 

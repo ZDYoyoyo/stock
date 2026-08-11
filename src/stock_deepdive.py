@@ -114,7 +114,9 @@ def tech_snapshot(sid: str) -> dict:
             m = s[s["stock_id"] == sid]
             if not m.empty:
                 row.update({k: v for k, v in m.iloc[0].to_dict().items() if k != "stock_id"})
-    row["定調"] = verdict.label(verdict._vote(pd.Series(row)))
+    vote = verdict._vote(pd.Series(row))
+    row["_vote"] = vote                      # 技術+籌碼原始票數（供深掘再併基本面票）
+    row["定調"] = verdict.label(vote)
     return row
 
 
@@ -311,6 +313,61 @@ def financial_health(sid: str, quarters: int = 6) -> pd.DataFrame:
             "自由現金流億": round((ocf + capex) / 1e8, 1) if ocf is not None and capex is not None else None,
         })
     return pd.DataFrame(rows).tail(quarters).reset_index(drop=True)
+
+
+# ---- 同業比較（DB 找同業 + FinMind 補估值/營收）----
+
+def industry_peers(sid: str, n: int = 5, imap: dict | None = None) -> tuple[list[tuple[str, str]], str]:
+    """同產業、依最新交易日成交額取前 n 檔（不含自己、最具可比性的大流動股）。
+
+    產業別走 `enrich.industry_map()`（FinMind TaiwanStockInfo，DB 的 stock_info.industry 是空的）。
+    回 ([(sid,name),…], 產業別)。imap 可預先傳入重用。
+    """
+    from .enrich import industry_map
+    imap = imap if imap is not None else industry_map()
+    industry = imap.get(sid, "")
+    if not industry:
+        return [], ""
+    same = [s for s, i in imap.items() if i == industry and s != sid]
+    if not same:
+        return [], industry
+    ph = ",".join("?" * len(same))
+    with connect() as c:
+        last = pd.read_sql("SELECT MAX(date) d FROM price", c)["d"].iloc[0]
+        df = pd.read_sql(
+            "SELECT si.stock_id, si.stock_name, p.close*p.volume AS amt "
+            "FROM stock_info si JOIN price p ON si.stock_id=p.stock_id "
+            f"WHERE p.date=? AND p.volume>0 AND si.stock_id IN ({ph})",
+            c, params=(last, *same))
+    if df.empty:
+        return [], industry
+    df = df.sort_values("amt", ascending=False).head(n)
+    return list(zip(df["stock_id"].astype(str), df["stock_name"].fillna(""))), industry
+
+
+def peer_table(sid: str, name: str, self_val: dict, self_rev, peers: list[tuple[str, str]]) -> pd.DataFrame:
+    """同業估值/營收並排：代號/名稱/PER/PBR/殖利率%/月營收YoY%（本檔標★、擺第一列）。
+
+    本檔重用已算好的 self_val/self_rev（不重抓）；同業各 2 call（估值＋最新月營收）。
+    """
+    def latest_yoy(rev_df):
+        if rev_df is None or rev_df.empty or "營收YoY%" not in rev_df.columns:
+            return None
+        s = rev_df["營收YoY%"].dropna()
+        return s.iloc[-1] if len(s) else None
+
+    rows = [{"代號": f"★{sid}", "名稱": name, "PER": (self_val or {}).get("PER"),
+             "PBR": (self_val or {}).get("PBR"), "殖利率%": (self_val or {}).get("殖利率%"),
+             "月營收YoY%": latest_yoy(self_rev)}]
+    for psid, pname in peers:
+        try:
+            v = valuation_snapshot(psid)
+            r = monthly_revenue(psid, months=1)
+        except Exception:
+            v, r = {}, None
+        rows.append({"代號": psid, "名稱": pname, "PER": v.get("PER"), "PBR": v.get("PBR"),
+                     "殖利率%": v.get("殖利率%"), "月營收YoY%": latest_yoy(r)})
+    return pd.DataFrame(rows)
 
 
 # ---- 分點（需 Sponsor）----
