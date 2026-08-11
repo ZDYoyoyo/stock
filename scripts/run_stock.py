@@ -91,6 +91,41 @@ def _tech_card_df(tech: dict) -> pd.DataFrame:
     return pd.DataFrame([row]) if row else pd.DataFrame()
 
 
+def _val_card_df(val: dict, streak: int) -> pd.DataFrame:
+    """估值卡：PER/PBR/殖利率%/PER近1年位置%/連續配息年數 → 單列 DataFrame。"""
+    if not val and not streak:
+        return pd.DataFrame()
+    row = {"PER": val.get("PER"), "PBR": val.get("PBR"), "殖利率%": val.get("殖利率%"),
+           "PER近1年位置%": val.get("PER近1年位置%"), "連續配息年數": streak or None}
+    row = {k: v for k, v in row.items() if v not in (None, "")}
+    return pd.DataFrame([row]) if row else pd.DataFrame()
+
+
+def _fund_charts(rev, prof, val) -> str:
+    """基本面迷你圖（HTML）：營收YoY長條／單季EPS長條／PER近1年折線。只放有資料的。"""
+    blocks = []
+
+    def blk(title, svg, cap=""):
+        c = f'<div class="chcap">{cap}</div>' if cap else ""
+        blocks.append(f'<div class="chblk"><div class="chttl">{title}</div>{svg}{c}</div>')
+
+    if rev is not None and not rev.empty and rev["營收YoY%"].notna().any():
+        blk("月營收 YoY%（紅增綠減）",
+            sc.bars(list(rev["營收YoY%"]), list(rev["月份"]), signed=True, unit="%", fmt="{:,.1f}"),
+            "近12月營收年增：紅=成長、綠=衰退")
+    if prof is not None and not prof.empty and prof["EPS單季"].notna().any():
+        blk("單季 EPS（元）",
+            sc.bars(list(prof["EPS單季"]), list(prof["季別"]), signed=True, unit=" 元", fmt="{:,.2f}"),
+            "逐季每股盈餘：看獲利趨勢")
+    if val and val.get("_per") and len(val["_per"]) >= 2:
+        blk("本益比 PER（近1年）",
+            sc.line(val["_per"], val.get("_dates"), unit="", fmt="{:,.1f}", color="#8e44ad"),
+            "PER 走勢：低=相對便宜、高=相對貴（位置%見估值卡）")
+    if not blocks:
+        return ""
+    return f'<div class="chgrid">{"".join(blocks)}</div>'
+
+
 def _md_table(df: pd.DataFrame) -> str:
     if df is None or df.empty:
         return "（無資料）\n"
@@ -182,7 +217,18 @@ def main():
     ht = dd.holder_trend(sid)
     dtl = dd.daytrade_timeline(sid, tl)
     has_broker = not bt.empty
-    print(f"   技術面：{tech.get('定調', '—')}　分點：{'可用' if has_broker else '不可用(需 Sponsor)'}")
+    # 基本面（FinMind 逐檔；抓不到留白）
+    try:
+        rev = dd.monthly_revenue(sid)
+        prof = dd.profitability(sid)
+        val = dd.valuation_snapshot(sid)
+        divs, div_streak = dd.dividends(sid)
+        has_fund = not rev.empty or not prof.empty or bool(val)
+    except Exception as e:
+        rev = prof = divs = pd.DataFrame(); val = {}; div_streak = 0; has_fund = False
+        print(f"   ⚠️ 基本面抓取略過（{type(e).__name__}: {e}）")
+    print(f"   技術面：{tech.get('定調', '—')}　基本面：{'有' if has_fund else '無'}　"
+          f"分點：{'可用' if has_broker else '不可用(需 Sponsor)'}")
 
     title = f"{sid} {meta['name']}（{meta['market']}{'・'+meta['industry'] if meta['industry'] else ''}）深掘病歷表"
     out_dir = OUTPUT_DIR.parent / "stock"
@@ -196,6 +242,21 @@ def main():
         md.append(f"- {ln}")
     md.append("\n## 📐 技術面（均線趨勢／位置）")
     md.append(_md_table(tech_df) if not tech_df.empty else "（技術面資料不足）\n")
+    # 基本面（FinMind）
+    val_df = _val_card_df(val, div_streak)
+    if has_fund:
+        md.append("\n## 🧾 基本面（營收動能／獲利／估值／配息）")
+        md.append("**估值＋配息：**\n")
+        md.append(_md_table(val_df) if not val_df.empty else "（無估值資料）\n")
+        md.append("\n**近12月營收：**\n")
+        md.append(_md_table(rev) if not rev.empty else "（無月營收資料）\n")
+        md.append("\n**近8季獲利能力：**\n")
+        md.append(_md_table(prof) if not prof.empty else "（無損益表資料）\n")
+        md.append(f"\n**近年配息**（連續配息 {div_streak} 年）：\n")
+        md.append(_md_table(divs) if not divs.empty else "（無配息資料）\n")
+    else:
+        md.append("\n## 🧾 基本面")
+        md.append("（基本面資料不可用；需 FinMind 且該檔有財報/營收）\n")
     md.append("\n## 📈 圖譜")
     md.append("> 迷你走勢圖（收盤+均線／主力淨額／隔日沖賣壓%／當沖比%／借券／大戶）請見同名 **.html**"
               "（可滑鼠移上去看數值）；下列表格為同資料的逐日明細。\n")
@@ -223,6 +284,17 @@ def main():
     body = f'<div class="banner reg-neutral">📌 近況摘要<small><ul class="ft">{sm}</ul></small></div>'
     body += sec("📐 技術面（均線趨勢／位置）",
                 _html_table(tech_df) if not tech_df.empty else "<p>（技術面資料不足）</p>")
+    # 基本面（FinMind）：估值+配息卡 → 迷你圖 → 營收/獲利/配息表
+    if has_fund:
+        fh = _html_table(val_df) if not val_df.empty else "<p>（無估值資料）</p>"
+        fh += _fund_charts(rev, prof, val)
+        fh += "<h3>近12月營收</h3>" + (_html_table(rev) if not rev.empty else "<p>（無）</p>")
+        fh += "<h3>近8季獲利能力</h3>" + (_html_table(prof) if not prof.empty else "<p>（無）</p>")
+        fh += f"<h3>近年配息（連續配息 {div_streak} 年）</h3>" + (
+            _html_table(divs) if not divs.empty else "<p>（無）</p>")
+        body += sec("🧾 基本面（營收動能／獲利／估值／配息）", fh)
+    else:
+        body += sec("🧾 基本面", "<p>（基本面資料不可用；需 FinMind 且該檔有財報/營收）</p>")
     body += _charts(tl, bt, dtl, ht, mas)
     body += sec(f"📊 近 {len(tl)} 交易日籌碼時間序列", _html_table(tl))
     body += sec("🏦 分點主力淨額 + 隔日沖賣壓%（逐日）",

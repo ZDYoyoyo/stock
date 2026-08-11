@@ -140,6 +140,118 @@ def ma_series(sid: str, dates: list[str]) -> dict:
             "MA60": sub["MA60"].tolist()}
 
 
+# ---- 基本面（FinMind 逐檔；抓不到回空，上層 graceful 留白）----
+
+def _pct(a, b):
+    """(a-b)/b×100，四捨1位；b 缺/0 回 None。"""
+    if a is None or b in (None, 0) or pd.isna(a) or pd.isna(b):
+        return None
+    return round((a - b) / abs(b) * 100, 1)
+
+
+def monthly_revenue(sid: str, months: int = 12) -> pd.DataFrame:
+    """近 N 月營收（億）＋YoY%/MoM%/累計YoY%。FinMind TaiwanStockMonthRevenue。"""
+    from .finmind_client import fetch
+    data = fetch("TaiwanStockMonthRevenue", start_date="2023-01-01", data_id=sid)
+    if not data:
+        return pd.DataFrame()
+    rev = {(int(d["revenue_year"]), int(d["revenue_month"])): d["revenue"] for d in data}
+    rows = []
+    for (y, m) in sorted(rev):
+        r = rev[(y, m)]
+        mom_key = (y, m - 1) if m > 1 else (y - 1, 12)
+        cum = sum(rev.get((y, mm), 0) for mm in range(1, m + 1))
+        cum_prev = sum(rev.get((y - 1, mm), 0) for mm in range(1, m + 1))
+        rows.append({"月份": f"{y}/{m:02d}", "營收億": round(r / 1e8, 2),
+                     "營收YoY%": _pct(r, rev.get((y - 1, m))),
+                     "營收MoM%": _pct(r, rev.get(mom_key)),
+                     "累計YoY%": _pct(cum, cum_prev) if cum_prev else None})
+    return pd.DataFrame(rows).tail(months).reset_index(drop=True)
+
+
+def profitability(sid: str, quarters: int = 8) -> pd.DataFrame:
+    """近 N 季獲利能力：毛利率%/營益率%/淨利率%/EPS單季/EPS年增%。損益表為單季值。"""
+    from .finmind_client import fetch
+    data = fetch("TaiwanStockFinancialStatements", start_date="2022-01-01", data_id=sid)
+    if not data:
+        return pd.DataFrame()
+    by: dict[str, dict] = {}
+    for d in data:
+        by.setdefault(d["date"], {})[d.get("type")] = d.get("value")
+    dates = sorted(by)
+    eps = {dt: by[dt].get("EPS") for dt in dates}
+    rows = []
+    for i, dt in enumerate(dates):
+        v = by[dt]
+        rev = v.get("Revenue")
+        mg = lambda x: round(x / rev * 100, 1) if rev and x is not None else None
+        e = eps[dt]
+        e_yoy = _pct(e, eps.get(dates[i - 4])) if i >= 4 else None   # vs 去年同季
+        rows.append({"季別": dt[:7], "毛利率%": mg(v.get("GrossProfit")),
+                     "營益率%": mg(v.get("OperatingIncome")), "淨利率%": mg(v.get("IncomeAfterTaxes")),
+                     "EPS單季": e, "EPS年增%": e_yoy})
+    return pd.DataFrame(rows).tail(quarters).reset_index(drop=True)
+
+
+def valuation_snapshot(sid: str) -> dict:
+    """估值：PER/PBR/殖利率%＋PER 近1年位置%（0=一年最便宜/100=最貴）＋PER 序列供圖。"""
+    from datetime import date, timedelta
+    from .finmind_client import fetch
+    start = (date.today() - timedelta(days=400)).isoformat()
+    data = fetch("TaiwanStockPER", start_date=start, data_id=sid)
+    if not data:
+        return {}
+    data = sorted(data, key=lambda d: d["date"])
+    cur = data[-1]
+    pers = [d["PER"] for d in data if d.get("PER") not in (None, 0)]
+    pos = None
+    if len(pers) >= 20 and cur.get("PER"):
+        lo, hi = min(pers), max(pers)
+        pos = round((cur["PER"] - lo) / (hi - lo) * 100) if hi > lo else None
+    return {"PER": cur.get("PER"), "PBR": cur.get("PBR"), "殖利率%": cur.get("dividend_yield"),
+            "PER近1年位置%": pos, "_per": pers, "_dates": [d["date"] for d in data if d.get("PER") not in (None, 0)]}
+
+
+def dividends(sid: str, years: int = 6) -> tuple[pd.DataFrame, int]:
+    """近 N 年配息（現金＋股票，按民國年彙總）＋連續配息年數。回 (df, streak)。
+
+    ⚠️ FinMind year 欄為『114年第2季』等民國+季字串（季配股會多列）→ 解析民國年、按年加總，
+    連續配息年數才不會把『季』誤當『年』。
+    """
+    import re
+    from .finmind_client import fetch
+    data = fetch("TaiwanStockDividend", start_date="2015-01-01", data_id=sid)
+    if not data:
+        return pd.DataFrame(), 0
+
+    def roc_year(s):
+        m = re.match(r"\s*(\d+)", str(s))
+        if not m:
+            return None
+        y = int(m.group(1))
+        return y + 1911 if y < 1911 else y     # 民國→西元（<1911 視為民國年）
+
+    by: dict[int, list] = {}
+    for d in data:
+        y = roc_year(d.get("year"))
+        if y is None:
+            continue
+        cash = (d.get("CashEarningsDistribution") or 0) + (d.get("CashStatutorySurplus") or 0)
+        stock = (d.get("StockEarningsDistribution") or 0) + (d.get("StockStatutorySurplus") or 0)
+        a = by.setdefault(y, [0.0, 0.0])
+        a[0] += cash
+        a[1] += stock
+    yrs = sorted(by)
+    streak = 0
+    for y in reversed(yrs):
+        if by[y][0] > 0:
+            streak += 1
+        else:
+            break
+    rows = [{"年度": y, "現金股利": round(by[y][0], 2), "股票股利": round(by[y][1], 2)} for y in yrs]
+    return pd.DataFrame(rows).tail(years).reset_index(drop=True), streak
+
+
 # ---- 分點（需 Sponsor）----
 
 def _branch_nets(sid: str, dates: list[str]) -> dict:
