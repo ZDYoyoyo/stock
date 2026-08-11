@@ -13,9 +13,11 @@ from __future__ import annotations
 import os
 
 import requests
+from dotenv import load_dotenv
 
 from .config import FINMIND_URL
 
+load_dotenv()   # 本機把 token 寫在專案 .env（雲端則走真環境變數）；漏這行會誤判「分點不可用」
 _TOKEN = os.getenv("FINMIND_TOKEN", "")
 _DATASET = "TaiwanStockTradingDailyReport"   # Sponsor 付費：券商分點日報
 _TOP_BRANCHES = 15                            # 主力=前幾大分點

@@ -119,6 +119,7 @@ python -m scripts.sync_data load               # 由 CSV 重建 stock.db
   這支只補歷史深度。跑後 `sync_data dump` 寫回 CSV(進 git)。用途：`enrich.big_holder_change_map` 千張週增減欄＋個股深掘大戶曲線。
 - `src/broker_client.py` — 券商分點日報 client(`TaiwanStockTradingDailyReport`, Sponsor)：`available()` 偵測、
   `branch_summary` 主力買賣超摘要。⚠️分點僅**單日**查(`end_date` 需 none/等於 start)、**原始上萬列/檔不落 DB**。
+  ⚠️**必須 `load_dotenv()`**（2026-08 修）：本機 token 寫在專案 `.env`，漏這行則 `_TOKEN=""`→`available()` 誤判「分點不可用(需 Sponsor)」，但抓資料(finmind_client 有 load_dotenv)照常→症狀＝有 Sponsor 卻只有分點失效。凡直接讀 FINMIND_TOKEN 的模組都要 load_dotenv。
 - `src/broker_signal.py` — 分點主力淨額＋隔日沖偵測 enrich(需 Sponsor)：`compute(ids, day, prev, vol_map)` 出
   「主力淨額(前15買超+前15賣超淨額)」＋「隔日沖賣壓%(昨日前15大買超分點今日轉淨賣量÷今日量→抓昨進今出大戶倒貨、
   補當沖比看不到的隔日沖盲區)」。逐檔 on-demand(每檔 T/T-1 各1 call)、僅對顯示候選(head 20/軌)。run_all 已接。
