@@ -55,6 +55,10 @@ MERGE_GROUPS = {
 }
 _GROUP_HEAD = "今/10/20/60日"
 
+# 收盤價篩選：哪一欄當「收盤價」（依優先序取第一個存在的）。各軌欄名不一：
+# 多數軌＝今日收盤、第6軌＝close、追蹤區＝今收、持股表＝現價。標到 <td data-price> 供 JS 篩選。
+_PRICE_COLS = ["今日收盤", "close", "現價", "今收"]
+
 
 def group_source_cols():
     """所有分組來源欄（供 MD 端補進 disp 供堆疊；HTML 端讀整列不需要）。"""
@@ -147,6 +151,14 @@ tbody tr:hover td:first-child { background: #eef3fb; }
 .colctrl .btns { margin-top:8px; display:flex; gap:8px; }
 .colctrl button { font-size:12px; padding:3px 10px; border:1px solid #b8c0cc; border-radius:6px;
   background:#fff; cursor:pointer; }
+/* 收盤價篩選列 */
+.pxctrl { background:#eef2f7; border:1px solid #d5dbe4; border-radius:8px;
+  padding:8px 12px; margin:12px 0; font-size:13px; font-weight:600; color:#2c3e50; }
+.pxctrl input { width:90px; font-size:13px; padding:3px 8px; border:1px solid #b8c0cc;
+  border-radius:6px; margin:0 4px; text-align:right; }
+.pxctrl button { font-size:12px; padding:3px 10px; border:1px solid #b8c0cc; border-radius:6px;
+  background:#fff; cursor:pointer; margin-left:6px; }
+.pxctrl .pxhint { font-weight:400; color:#158a4e; }
 .star { background:#fffbe6; border:1px solid #ffe28a; border-radius:8px; padding:10px 14px; }
 .disclaimer { color:#999; font-size:12px; margin-top:20px; }
 @media (prefers-color-scheme: dark) {
@@ -160,6 +172,8 @@ tbody tr:hover td:first-child { background: #eef3fb; }
   .colctrl { background:#20242b; border-color:#333a44; }
   .colctrl summary { color:#cdd6e2; }
   .colctrl button { background:#2a2f37; color:#e6e6e6; border-color:#444; }
+  .pxctrl { background:#20242b; border-color:#333a44; color:#cdd6e2; }
+  .pxctrl input, .pxctrl button { background:#2a2f37; color:#e6e6e6; border-color:#444; }
 }
 """
 
@@ -200,6 +214,7 @@ def _table(df: pd.DataFrame, cols, signed_cols) -> str:
         if anchor in df.columns:
             hide.update(col for col, _ in srcs if col != anchor)
     cols = [c for c in cols if c in df.columns and c not in hide]
+    price_col = next((c for c in _PRICE_COLS if c in cols), None)  # 這張表用哪欄當收盤價
     head = ""
     for c in cols:
         if c in MERGE_GROUPS and c in df.columns:
@@ -220,7 +235,8 @@ def _table(df: pd.DataFrame, cols, signed_cols) -> str:
                     style = f"color:{_UP};font-weight:600"
                 elif v < 0:
                     style = f"color:{_DOWN};font-weight:600"
-            tds += f'<td data-col="{c}" style="{style}">{_fmt(v)}</td>'
+            px = f' data-price="{v}"' if c == price_col and isinstance(v, (int, float)) and pd.notna(v) else ""
+            tds += f'<td data-col="{c}"{px} style="{style}">{_fmt(v)}</td>'
         body += f"<tr>{tds}</tr>"
     return f'<div class="tblwrap"><table><thead><tr>{head}</tr></thead><tbody>{body}</tbody></table></div>'
 
@@ -341,6 +357,34 @@ function allCols(show){document.querySelectorAll('.colctrl input[type=checkbox]'
 </script>"""
 
 
+def _pxctrl() -> str:
+    """收盤價上限篩選列：輸入一個價格，全報告即時只留收盤價 ≤ 該值的列（跨所有軌）。"""
+    return ('<div class="pxctrl">💰 只看收盤價 ≤ '
+            '<input type="number" id="pxmax" min="0" step="1" placeholder="不限" '
+            'inputmode="decimal" oninput="pxApply()"> 元'
+            '<button onclick="pxClear()">清除</button>'
+            '<span class="pxhint" id="pxhint"></span></div>')
+
+
+_PX_JS = """
+<script>
+var PXK='twreport_pxmax';
+function pxApply(){
+ var el=document.getElementById('pxmax');var v=(el.value||'').trim();
+ var max=(v==='')?null:parseFloat(v);var shown=0,total=0;
+ document.querySelectorAll('table tbody tr').forEach(function(tr){
+  var pc=tr.querySelector('[data-price]');if(!pc)return;
+  var p=parseFloat(pc.getAttribute('data-price'));if(isNaN(p))return;
+  total++;var hide=(max!==null)&&!isNaN(max)&&p>max;tr.style.display=hide?'none':'';if(!hide)shown++;});
+ var hint=document.getElementById('pxhint');
+ hint.textContent=(max===null||isNaN(max))?'':('　符合 '+shown+' / '+total+' 檔');
+ try{if(v==='')localStorage.removeItem(PXK);else localStorage.setItem(PXK,v);}catch(e){}
+}
+function pxClear(){document.getElementById('pxmax').value='';pxApply();}
+(function(){try{var s=localStorage.getItem(PXK);if(s){document.getElementById('pxmax').value=s;pxApply();}}catch(e){}})();
+</script>"""
+
+
 def build(today, reg, glob_lines, sox, blocks, intersection=None,
           followthrough=None, ftstats=None, snipe_ohlc=None, snipe_ohlc_stats=None) -> str:
     from .regime import summary_line
@@ -386,7 +430,7 @@ def build(today, reg, glob_lines, sox, blocks, intersection=None,
 <title>台股每日整合報告 {today}</title><style>{_CSS}</style></head>
 <body><div class="wrap">
 <h1>台股每日整合報告</h1><div class="sub">{today}　·　研究用途，非投資建議</div>
-{banner}{_colctrl(blocks)}{body}
+{banner}{_pxctrl()}{_colctrl(blocks)}{body}
 <p class="note" style="margin-top:18px">{GLOSSARY}</p>
 <div class="disclaimer">⚠️ 本報告為候選觀察名單，非投資建議。紅漲綠跌為台股慣例。</div>
-</div>{_COLCTRL_JS}</body></html>"""
+</div>{_COLCTRL_JS}{_PX_JS}</body></html>"""

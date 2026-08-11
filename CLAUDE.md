@@ -80,6 +80,8 @@ python -m scripts.sync_data load               # 由 CSV 重建 stock.db
 
 - `scripts/run_all.py` — 主流程：跑五軌、併欄、寫 `.md`/`.html`/各軌 `.csv`、推播。
 - `src/report_html.py` — HTML 輸出＋`COLUMN_LABELS`（英文欄名→中文顯示名）＋`rename_cn`。
+  📌**收盤價上限篩選**（`_pxctrl`/`_PX_JS`）：報告頂端一個輸入框「只看收盤價 ≤ N 元」→純前端 JS 即時跨全部軌隱藏超標列＋顯示「符合 N/M 檔」＋localStorage 記住。
+  收盤價欄各軌不一(`_PRICE_COLS`=今日收盤>close>現價>今收 優先序)，`_table` 就地把該欄 `<td>` 標 `data-price` 供 JS 讀。純視圖控制(同 colctrl)、MD 無對應。
 - `src/chip_signal.py` — 籌碼訊號：連買賣天數、法人主導度%、訊號標籤、量能倍數、券資比%、
   資券佔量%（把資券絕對張數相對化，避免「融券−343」被誤判大小）。
 - `src/flows.py` — 法人多時窗流向(近10/20/60日淨買賣超)、資券增減併欄；`institution_flows(days=N)`

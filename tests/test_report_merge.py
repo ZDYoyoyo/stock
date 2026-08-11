@@ -54,3 +54,26 @@ def test_html_hides_today_source_columns():
     header = html.split("<tbody>")[0]
     # 「外資今日」不應獨立成表頭欄（已併進外資格）
     assert "外資今日" not in header.replace("<small>", "").replace("</small>", "")
+
+
+def test_price_tag_prefers_today_close_over_base_close():
+    """收盤價篩選標記：多數軌同時有 close(基準) 與 今日收盤 → data-price 標在今日收盤。"""
+    df = pd.DataFrame([{"stock_id": "2330", "name": "台積電", "close": 1080.0, "今日收盤": 1085.0}])
+    html = rh._table(df, ["stock_id", "name", "close", "今日收盤"], signed_cols=[])
+    assert 'data-price="1085.0"' in html                 # 標在今日收盤
+    assert 'data-col="close" data-price' not in html      # 基準收盤不標
+
+
+def test_price_tag_falls_back_to_close_then_absent():
+    """第6軌只有 close → 標 close；追蹤/無價欄的表 → 無 data-price（不受篩選）。"""
+    snipe = pd.DataFrame([{"stock_id": "3374", "name": "精材", "close": 95.0}])
+    assert 'data-price="95.0"' in rh._table(snipe, ["stock_id", "name", "close"], [])
+    noprice = pd.DataFrame([{"stock_id": "3374", "name": "精材", "鎖碼淨額": 500}])
+    assert "data-price" not in rh._table(noprice, ["stock_id", "name", "鎖碼淨額"], [])
+
+
+def test_price_filter_control_and_js_present():
+    df = pd.DataFrame([{"stock_id": "2330", "name": "台積電", "今日收盤": 1085.0}])
+    page = rh.build("2026-08-11", {"regime": "中性"}, ["x"], "sox",
+                    [{"title": "測試軌", "df": df, "cols": ["stock_id", "name", "今日收盤"], "signed": []}])
+    assert 'id="pxmax"' in page and "function pxApply" in page
