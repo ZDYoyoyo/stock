@@ -85,8 +85,10 @@ python -m scripts.sync_data load               # 由 CSV 重建 stock.db
   📌**代號→K線圖外連**(`_klink`/`_ID_COLS`/`_KCHART_URL`)：報告裡股票代號做成 Goodinfo K線圖連結(`ShowK_Chart.asp?STOCK_ID=`，新分頁、免分上市櫃故每檔一種網址最穩)。`_table` 代號欄(`stock_id`/`代號`)＋追蹤區/歸因段的代號都套。純外連、MD 無對應。
 - `src/chip_signal.py` — 籌碼訊號：連買賣天數、法人主導度%、訊號標籤、量能倍數、券資比%、
   資券佔量%（把資券絕對張數相對化，避免「融券−343」被誤判大小）。
-- `src/flows.py` — 法人多時窗流向(近10/20/60日淨買賣超)、資券增減併欄；`institution_flows(days=N)`
-  參數化。報告用 `report_html.MERGE_GROUPS` 把今/10/20/60 同格堆疊(欄數不變、版面不爆)。
+- `src/flows.py` — 法人多時窗流向(近10/20日淨買賣超)、資券增減併欄；`institution_flows(days=N)`
+  參數化。報告用 `report_html.MERGE_GROUPS` 把**今/昨/10/20** 同格堆疊(欄數不變、版面不爆)。
+  ⚠️(2026-08 使用者調整)加「昨日」單日、拿掉「60日」季窗(太遠)。今/昨走 `run_all._day_flows(offset)`(0=今·1=昨)、
+  10/20 走 `institution_flows`。改窗只需動 `MERGE_GROUPS`+`_GROUP_HEAD`+run_all 產生對應來源欄，MD 端自動跟(讀 `group_source_cols`)。
 - `src/tech_signal.py` — 技術面併欄：均線排列(5/10/20多空)、季線年線(60/240MA中長多空)、
   20MA乖離%、52週位置%(近1年區間位置)、成交額億(資金權重)。需長歷史→靠滾動窗每日DB。
 - `src/screeners/` — 各軌篩選器 + `landmine`(地雷偵測)。

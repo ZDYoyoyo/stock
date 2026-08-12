@@ -103,12 +103,13 @@ def _today_px():
     return out
 
 
-def _today_flows():
-    """回傳每檔『今日單日』法人分項＋資券變化 DataFrame（供各軌 merge，依 stock_id）。
+def _day_flows(offset: int = 0, suffix: str = "今日"):
+    """回傳每檔『單日』法人分項＋資券變化 DataFrame（供各軌 merge，依 stock_id）。
 
-    欄位：外資今日/投信今日/自營今日（張，正=買超，取 institutional 最新日）、
-          融資今日/融券今日（張，正=增加，= 最新日餘額 − 前一日餘額）。
-    看「今天誰在動」；旁邊的 外資10日 等看近10日趨勢。
+    offset=0＝最新交易日(今日)、offset=1＝前一交易日(昨日)。欄位帶 suffix：
+      外資{suffix}/投信{suffix}/自營{suffix}（張，正=買超，取 institutional 該日）、
+      融資{suffix}/融券{suffix}（張，正=增加，= 該日餘額 − 前一日餘額）。
+    看「今天/昨天誰在動」；旁邊的 外資10日 等看近10/20日趨勢。
     """
     import pandas as pd
     from src.db import read_table
@@ -119,23 +120,31 @@ def _today_flows():
 
     out = None
     if not inst.empty:
-        last = sorted(inst["date"].unique())[-1]
-        out = (inst[inst["date"] == last][["stock_id", "foreign_net", "trust_net", "dealer_net"]]
-               .rename(columns={"foreign_net": "外資今日", "trust_net": "投信今日",
-                                "dealer_net": "自營今日"}))
+        idts = sorted(inst["date"].unique())
+        if len(idts) > offset:
+            day = idts[-1 - offset]
+            out = (inst[inst["date"] == day][["stock_id", "foreign_net", "trust_net", "dealer_net"]]
+                   .rename(columns={"foreign_net": f"外資{suffix}", "trust_net": f"投信{suffix}",
+                                    "dealer_net": f"自營{suffix}"}))
     if not mg.empty:
         dts = sorted(mg["date"].unique())
-        cur = mg[mg["date"] == dts[-1]].set_index("stock_id")
-        chg = pd.DataFrame({"stock_id": cur.index})
-        if len(dts) >= 2:
-            pv = mg[mg["date"] == dts[-2]].set_index("stock_id")
-            chg["融資今日"] = (cur["margin_balance"] - pv["margin_balance"].reindex(cur.index)).values
-            chg["融券今日"] = (cur["short_balance"] - pv["short_balance"].reindex(cur.index)).values
-        else:
-            chg["融資今日"] = pd.NA
-            chg["融券今日"] = pd.NA
-        out = chg if out is None else out.merge(chg, on="stock_id", how="outer")
+        if len(dts) > offset:
+            cur = mg[mg["date"] == dts[-1 - offset]].set_index("stock_id")
+            chg = pd.DataFrame({"stock_id": cur.index})
+            if len(dts) >= offset + 2:
+                pv = mg[mg["date"] == dts[-2 - offset]].set_index("stock_id")
+                chg[f"融資{suffix}"] = (cur["margin_balance"] - pv["margin_balance"].reindex(cur.index)).values
+                chg[f"融券{suffix}"] = (cur["short_balance"] - pv["short_balance"].reindex(cur.index)).values
+            else:
+                chg[f"融資{suffix}"] = pd.NA
+                chg[f"融券{suffix}"] = pd.NA
+            out = chg if out is None else out.merge(chg, on="stock_id", how="outer")
     return out if out is not None else pd.DataFrame(columns=["stock_id"])
+
+
+def _today_flows():
+    """今日單日（＝_day_flows(0)）；保留舊名供既有呼叫點。"""
+    return _day_flows(0, "今日")
 
 
 def _add_today(df, tpx):
@@ -175,7 +184,7 @@ def _section(f, title, df, cols, n=15, skipped=False, note=None):
         f.write("（今日無符合條件標的）\n")
     else:
         keep = [c for c in cols if c in df.columns]
-        # 補上分組來源欄（今/20/60日等雖不在 cols，仍需讀來堆疊同格）
+        # 補上分組來源欄（今/昨/20日等雖不在 cols，仍需讀來堆疊同格）
         keep += [c for c in report_html.group_source_cols()
                  if c in df.columns and c not in keep]
         disp = df[keep].head(n).copy()
@@ -376,8 +385,9 @@ def main():
     df12 = flows_mod.enrich(df12, flows=_flows)   # 五軌一致：成長軌也看法人/資券
     dflt = flows_mod.enrich(dflt, flows=_flows)   # 長期軌也看法人/資券
 
-    # 追加 20日/60日 累積窗（月/季，補10日不足）：同格堆疊今/10/20/60，不新增欄
-    for _w in (20, 60):
+    # 追加 20日 累積窗（月，補10日不足）：同格堆疊今/昨/10/20，不新增欄
+    # （60日季窗 2026-08 已移除——太遠參考性低，使用者要求）
+    for _w in (20,):
         _fw = flows_mod.institution_flows(days=_w).rename(columns={
             "外資": f"外資{_w}日", "投信": f"投信{_w}日", "自營": f"自營{_w}日",
             "融資增減": f"融資{_w}日", "融券增減": f"融券{_w}日"})
@@ -393,18 +403,23 @@ def main():
             return d
         df11, df16, dfdt, df12, dflt = _mw(df11), _mw(df16), _mw(dfdt), _mw(df12), _mw(dflt)
 
-    # 併入「今日單日」法人分項(外資/投信/自營今日)＋資券今日增減，看「今天誰在動」
+    # 併入「今日/昨日單日」法人分項(外資/投信/自營)＋資券增減，看「今天/昨天誰在動」
+    # 同格堆疊順序＝今/昨/10/20（旁邊 10/20日看趨勢）
     _tf = _today_flows()
+    _yf = _day_flows(1, "昨日")
     _tcols = ["外資今日", "投信今日", "自營今日", "融資今日", "融券今日"]
-    if _tf is not None and not _tf.empty:
-        df11 = df11.merge(_tf, on="stock_id", how="left") if not df11.empty else df11
-        df16 = df16.merge(_tf, on="stock_id", how="left") if not df16.empty else df16
-        dfdt = dfdt.merge(_tf, on="stock_id", how="left") if not dfdt.empty else dfdt
-        df12 = df12.merge(_tf, on="stock_id", how="left") if df12 is not None and not df12.empty else df12
-        dflt = dflt.merge(_tf, on="stock_id", how="left") if dflt is not None and not dflt.empty else dflt
+    _ycols = ["外資昨日", "投信昨日", "自營昨日", "融資昨日", "融券昨日"]
+    for _sf, _scols in ((_tf, _tcols), (_yf, _ycols)):
+        if _sf is None or _sf.empty:
+            continue
+        df11 = df11.merge(_sf, on="stock_id", how="left") if not df11.empty else df11
+        df16 = df16.merge(_sf, on="stock_id", how="left") if not df16.empty else df16
+        dfdt = dfdt.merge(_sf, on="stock_id", how="left") if not dfdt.empty else dfdt
+        df12 = df12.merge(_sf, on="stock_id", how="left") if df12 is not None and not df12.empty else df12
+        dflt = dflt.merge(_sf, on="stock_id", how="left") if dflt is not None and not dflt.empty else dflt
         for d in (df11, df16, df12, dflt, dfdt):
             if d is not None and not d.empty:
-                for c in _tcols:
+                for c in _scols:
                     if c in d.columns:
                         d[c] = d[c].astype("Int64")
 
@@ -511,7 +526,7 @@ def main():
     _flownote = (
         "🧭 定調＝籌碼＋技術 7面向投票的一句話方向(🔴偏多找買點/⚪觀望/🟢偏空，須≥3方向一致)：法人主導·融資散戶·"
         "均線排列·季線年線·20MA乖離·52週位置·券資比軋空。⚠️昨日收盤後資料的**方向偏誤(bias)非盤中即時**，進出仍看盤中量價\n"
-        "📊 法人/資券欄｜每格四個數＝今日／近10日／近20日(月)／近60日(季)累積(HTML 由上而下四行、MD 以／分隔，位置對應)；"
+        "📊 法人/資券欄｜每格四個數＝今日／昨日／近10日／近20日(月)累積(HTML 由上而下四行、MD 以／分隔，位置對應)；"
         "外資·投信·自營＝買賣超(🔴買超/🟢賣超)，融資·融券＝餘額增減(🔴增/🟢減)；短窗看轉折、長窗看主力方向"
         "\n　↳ 融資增＝散戶借錢追價⚠️籌碼較不安定；融券增＝空單多·股價若強有軋空機會(未來須回補)——顏色只表增減，好壞配股價方向看"
         "\n🔁 連續｜外資連·投信連·自營連＝當前連續同向天數(正=連買／負=連賣，看誰在狂買狂賣)"

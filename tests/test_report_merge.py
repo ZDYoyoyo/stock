@@ -14,11 +14,11 @@ from src import report_html as rh
 
 def _row():
     return {"stock_id": "2330", "name": "台積電",
-            "外資今日": 100, "外資": 500, "外資20日": 1200, "外資60日": -300,
-            "投信今日": 10, "投信": -20, "投信20日": 50, "投信60日": 80,
-            "自營今日": 5, "自營": 8, "自營20日": None, "自營60日": 12,
-            "融資今日": -30, "融資增減": -100, "融資20日": -250, "融資60日": 400,
-            "融券今日": 3, "融券增減": -343, "融券20日": 20, "融券60日": None}
+            "外資今日": 100, "外資昨日": 200, "外資": 500, "外資20日": 1200,
+            "投信今日": 10, "投信昨日": -15, "投信": -20, "投信20日": 50,
+            "自營今日": 5, "自營昨日": 7, "自營": 8, "自營20日": None,
+            "融資今日": -30, "融資昨日": -40, "融資增減": -100, "融資20日": -250,
+            "融券今日": 3, "融券昨日": 6, "融券增減": -343, "融券20日": 20}
 
 
 _COLS = ["stock_id", "name", "外資今日", "外資", "投信今日", "投信",
@@ -26,24 +26,25 @@ _COLS = ["stock_id", "name", "外資今日", "外資", "投信今日", "投信",
 
 
 def test_fmt_group_text_positional_and_missing():
-    assert rh.fmt_group_text([100, 500, 1200, -300]) == "+100／+500／+1,200／-300"
-    assert rh.fmt_group_text([5, 8, pd.NA, 12]) == "+5／+8／—／+12"
+    assert rh.fmt_group_text([100, 200, 500, 1200]) == "+100／+200／+500／+1,200"
+    assert rh.fmt_group_text([5, 7, 8, pd.NA]) == "+5／+7／+8／—"
 
 
 def test_group_source_cols_covers_all_windows():
     src = rh.group_source_cols()
     for base in ("外資", "投信", "自營", "融資", "融券"):
         assert f"{base}今日" in src or f"{base}增減" in src or base in src
-    assert "外資20日" in src and "外資60日" in src
+    assert "外資昨日" in src and "外資20日" in src     # 今/昨/10/20
+    assert "外資60日" not in src                       # 60日已移除
 
 
 def test_html_table_merges_five_cells():
     df = pd.DataFrame([_row()])
     html = rh._table(df, _COLS, signed_cols=[])
-    # 今日等來源欄併入 anchor → 表頭剩 代號/名稱 + 5 個法人資券欄 = 7（th 現帶 data-col 屬性）
+    # 今/昨等來源欄併入 anchor → 表頭剩 代號/名稱 + 5 個法人資券欄 = 7（th 現帶 data-col 屬性）
     assert html.count("<th ") == 7
     assert rh._GROUP_HEAD in html
-    for v in ("+100", "+500", "+1,200", "-300"):   # 外資今/10/20/60
+    for v in ("+100", "+200", "+500", "+1,200"):   # 外資今/昨/10/20
         assert v in html
     assert "—" in html                              # 自營20日缺值
 
