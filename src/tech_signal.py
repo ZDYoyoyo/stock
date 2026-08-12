@@ -6,6 +6,7 @@
   - 均線排列：5/10/20MA 短期多空。🔴多頭(5>10>20)／🟢空頭(5<10<20)／⚪糾結（其餘）。
   - 季線年線：股價 vs 60MA(季)/240MA(年) 中長期位置。🔴站上季年／站上季／站上年／🟢跌破季年。
       ⚠️需足夠歷史（季線60天、年線240天）；每日DB歷史不足時顯「—」。
+  - 半年線：股價 vs 120MA。季線與年線之間的中期分水嶺（波段常用）。🔴站上／🟢跌破。
   - 20MA乖離%：(收盤−20MA)/20MA×100。正=站上均線偏強、過大=過熱追高風險；負=跌破。
   - 52週位置%：收盤在近240交易日區間的位置(0=年內最低、100=年內最高)，看波段高低檔。
   - 成交額億：今日量(張)×收盤×1000 ÷1億。資金權重——張數不分價位會誤判
@@ -20,7 +21,7 @@ import pandas as pd
 
 from .db import read_table
 
-_COLS = ["stock_id", "均線排列", "季線年線", "20MA乖離%", "52週位置%", "成交額億"]
+_COLS = ["stock_id", "均線排列", "季線年線", "半年線", "20MA乖離%", "52週位置%", "成交額億"]
 
 
 def _ma(closes: list, n: int):
@@ -28,7 +29,7 @@ def _ma(closes: list, n: int):
 
 
 def compute() -> pd.DataFrame:
-    """回傳每檔 [均線排列, 季線年線, 20MA乖離%, 52週位置%, 成交額億]（依 stock_id）。資料不足回空表。"""
+    """回傳每檔 [均線排列, 季線年線, 半年線, 20MA乖離%, 52週位置%, 成交額億]（依 stock_id）。資料不足回空表。"""
     px = read_table("price", use_cache=True)[["date", "stock_id", "close", "volume"]]
     if px.empty:
         return pd.DataFrame(columns=_COLS)
@@ -65,6 +66,10 @@ def compute() -> pd.DataFrame:
         else:
             lt = "—"
 
+        # 半年線(120MA)：季線與年線之間的中期分水嶺，波段常用來判「中期多空」
+        ma120 = _ma(closes, 120)
+        half = ("🔴站上半年線" if c > ma120 else "🟢跌破半年線") if ma120 else "—"
+
         # 52週位置%：收盤在近240交易日區間位置(0=最低,100=最高)；歷史不足120天則不算
         win = closes[-240:]
         if len(win) >= 120:
@@ -75,7 +80,7 @@ def compute() -> pd.DataFrame:
 
         vol = g["volume"].iloc[-1]
         amt = round(c * vol / 1e5, 2) if pd.notna(vol) else None   # 張×元×1000÷1e8 = 億元
-        rows.append((sid, align, lt, bias, pos, amt))
+        rows.append((sid, align, lt, half, bias, pos, amt))
 
     return pd.DataFrame(rows, columns=_COLS)
 

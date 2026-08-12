@@ -90,3 +90,59 @@ def plan_trade(sid: str, account: float, risk_pct: float = 1.0,
         "risk_%": round(actual_risk / account * 100, 2),
         "capped_by_position_limit": capped,  # True=受單檔部位上限而縮量
     }
+
+
+# ---- 全市場 ATR 價位（供每日報告併欄；不需帳戶大小，故與 plan_trade 分開）----
+
+_LEVEL_COLS = ["stock_id", "ATR", "停損價", "停損%", "目標價"]
+
+
+def levels(atr_mult: float = 2.0, target_r: float = 2.0, period: int = 14):
+    """每檔 ATR 停損/目標價（進場價＝最新收盤）。一次讀全表向量化，不逐檔查 DB。
+
+    停損價＝收盤−atr_mult×ATR；目標價＝收盤＋target_r×(收盤−停損價)
+    → 風報比固定 1:target_r（故不另列欄，寫在報告說明）。
+    停損%＝停損距離佔股價%，**因股而異**：波動大的股本來就該把停損放寬，
+    用固定 5% 停損會在高波動股被雜訊掃出場。
+    """
+    import pandas as pd
+    from .db import read_table
+
+    px = read_table("price", use_cache=True)[["date", "stock_id", "high", "low", "close"]]
+    if px.empty:
+        return pd.DataFrame(columns=_LEVEL_COLS)
+    px = px.sort_values(["stock_id", "date"])
+    g = px.groupby("stock_id", sort=False)
+    prev_c = g["close"].shift(1)
+    tr = pd.concat([px["high"] - px["low"],
+                    (px["high"] - prev_c).abs(),
+                    (px["low"] - prev_c).abs()], axis=1).max(axis=1)
+    px = px.assign(_tr=tr)
+    atr_s = (px.groupby("stock_id", sort=False)["_tr"]
+             .apply(lambda s: s.tail(period).mean() if s.notna().sum() >= period else None))
+    last = px.groupby("stock_id", sort=False)["close"].last()
+
+    out = pd.DataFrame({"stock_id": atr_s.index, "ATR": atr_s.values,
+                        "_close": last.reindex(atr_s.index).values})
+    out = out[out["ATR"].notna() & (out["ATR"] > 0) & out["_close"].notna()]
+    if out.empty:
+        return pd.DataFrame(columns=_LEVEL_COLS)
+    stop = out["_close"] - atr_mult * out["ATR"]
+    stop = stop.where(stop > 0)                      # 停損價須為正（低價股極端波動）
+    risk = out["_close"] - stop
+    out["ATR"] = out["ATR"].round(2)
+    out["停損價"] = stop.round(2)
+    out["停損%"] = (-risk / out["_close"] * 100).round(1)
+    out["目標價"] = (out["_close"] + target_r * risk).round(2)
+    return out[_LEVEL_COLS].reset_index(drop=True)
+
+
+def enrich(df, lv=None):
+    """把 ATR/停損價/停損%/目標價 併進 df（依 stock_id）。lv 可預算好重用。"""
+    if df is None or getattr(df, "empty", True) or "stock_id" not in df.columns:
+        return df
+    s = lv if lv is not None else levels()
+    if s is None or s.empty:
+        return df
+    dup = [c for c in s.columns if c != "stock_id" and c in df.columns]
+    return df.merge(s.drop(columns=dup) if dup else s, on="stock_id", how="left")

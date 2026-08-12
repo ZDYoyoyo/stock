@@ -77,15 +77,19 @@ def _charts(tl, bt, dtl, ht, mas=None) -> str:
 # 各表的「有正負、要上色」欄（紅正綠負，台股慣例）
 _SIGNED = {"漲跌%", "外資", "投信", "自營", "融資增減", "融券增減", "借券增減",
            "主力淨額", "大戶週增pp", "20MA乖離%", "EPS單季", "EPS年增%", "營收YoY%",
-           "營收MoM%", "累計YoY%", "自由現金流億", "營運CF億"}
+           "營收MoM%", "累計YoY%", "自由現金流億", "營運CF億", "ROE%"}
 
 # 技術面卡要顯示的欄（趨勢/位置導向；綜合定調改放頂端摘要、含基本面票，故卡片不再放定調）
-_TECH_CARD = ["均線排列", "季線年線", "20MA乖離%", "52週位置%", "量能倍數", "成交額億"]
+_TECH_CARD = ["均線排列", "季線年線", "半年線", "20MA乖離%", "52週位置%", "量能倍數", "成交額億"]
 
 
-def _fund_vote(info: dict, health, flags) -> int:
-    """基本面票（±，併入綜合定調）：營收YoY／EPS年增／獲利含金量／財報紅旗。"""
+def _fund_vote(info: dict, health, flags, rates: str = "") -> int:
+    """基本面票（±，併入綜合定調）：營收YoY／EPS年增／獲利含金量／三率三升／財報紅旗。"""
     v = 0
+    if "三率三升" in (rates or ""):
+        v += 1
+    elif "三率三降" in (rates or ""):
+        v -= 1
     yoy = (info or {}).get("營收YoY%")
     if yoy is not None:
         v += 1 if yoy > 15 else (-1 if yoy < -10 else 0)
@@ -292,7 +296,8 @@ def main():
         print(f"   ⚠️ 財報紅旗略過（{type(e).__name__}: {e}）")
     from src import verdict as _vd
     tv = int(tech.get("_vote", 0))
-    fv = _fund_vote(fin_info, health, fin_flags)
+    rates = dd.three_rates(prof)
+    fv = _fund_vote(fin_info, health, fin_flags, rates)
     vinfo = {"label": _vd.label(tv + fv), "tv": tv, "fv": fv}
 
     # 同業比較（產業別走 FinMind industry_map；DB 成交額排序取同業大股）
@@ -324,12 +329,12 @@ def main():
     # 基本面（FinMind）
     val_df = _val_card_df(val, div_streak)
     if has_fund:
-        md.append("\n## 🧾 基本面（營收動能／獲利／估值／配息）")
+        md.append(f"\n## 🧾 基本面（營收動能／獲利／估值／配息）　{rates if rates != chr(8212) else ''}")
         md.append("**估值＋配息：**\n")
         md.append(_md_table(val_df) if not val_df.empty else "（無估值資料）\n")
         md.append("\n**近12月營收：**\n")
         md.append(_md_table(rev) if not rev.empty else "（無月營收資料）\n")
-        md.append("\n**近8季獲利能力：**\n")
+        md.append(f"\n**近8季獲利能力**（最新季 vs 上季：{rates}）：\n")
         md.append(_md_table(prof) if not prof.empty else "（無損益表資料）\n")
         md.append(f"\n**近年配息**（連續配息 {div_streak} 年）：\n")
         md.append(_md_table(divs) if not divs.empty else "（無配息資料）\n")
@@ -380,10 +385,10 @@ def main():
         fh = _html_table(val_df) if not val_df.empty else "<p>（無估值資料）</p>"
         fh += _fund_charts(rev, prof, val)
         fh += "<h3>近12月營收</h3>" + (_html_table(rev) if not rev.empty else "<p>（無）</p>")
-        fh += "<h3>近8季獲利能力</h3>" + (_html_table(prof) if not prof.empty else "<p>（無）</p>")
+        fh += f"<h3>近8季獲利能力（最新季 vs 上季：{rates}）</h3>" + (_html_table(prof) if not prof.empty else "<p>（無）</p>")
         fh += f"<h3>近年配息（連續配息 {div_streak} 年）</h3>" + (
             _html_table(divs) if not divs.empty else "<p>（無）</p>")
-        body += sec("🧾 基本面（營收動能／獲利／估值／配息）", fh)
+        body += sec(f"🧾 基本面（營收動能／獲利／估值／配息）　{rates if rates != chr(8212) else ''}", fh)
     else:
         body += sec("🧾 基本面", "<p>（基本面資料不可用；需 FinMind 且該檔有財報/營收）</p>")
     # 財務體質（三表健檢）

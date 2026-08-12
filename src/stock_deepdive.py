@@ -295,6 +295,22 @@ def financial_health(sid: str, quarters: int = 6) -> pd.DataFrame:
     ocf_q = single_q(C, "CashFlowsFromOperatingActivities")
     capex_q = single_q(C, "PropertyAndPlantAndEquipment")   # 已為負(現金流出)
 
+    # 真實 ROE（近四季稅後淨利 ÷ 期末股東權益）——取代「PBR/PER 估算」的粗估值。
+    # 損益表淨利本就單季 → 逐季往前取 4 季加總＝TTM。
+    fdates = sorted(F)
+    ni_map = {dt: F[dt].get("IncomeAfterTaxes") for dt in fdates}
+
+    def roe_ttm(dt, eq):
+        if not eq or dt not in ni_map:
+            return None
+        i = fdates.index(dt)
+        if i < 3:
+            return None                        # 不足四季
+        window = [ni_map[d] for d in fdates[i - 3:i + 1]]
+        if any(v is None for v in window):
+            return None
+        return round(sum(window) / eq * 100, 1)
+
     rows = []
     for dt in sorted(set(B) | set(C)):
         b = B.get(dt, {})
@@ -305,6 +321,7 @@ def financial_health(sid: str, quarters: int = 6) -> pd.DataFrame:
         ni = F.get(dt, {}).get("IncomeAfterTaxes")
         rows.append({
             "季別": dt[:7],
+            "ROE%": roe_ttm(dt, eq),                                        # 近四季TTM/期末權益
             "負債比%": round(li / ta * 100, 1) if ta and li is not None else None,
             "流動比%": round(ca / cl * 100) if cl and ca is not None else None,
             "每股淨值": round(eq / (cap / 10), 2) if eq and cap else None,   # 權益÷(股本/面額10)
@@ -313,6 +330,26 @@ def financial_health(sid: str, quarters: int = 6) -> pd.DataFrame:
             "自由現金流億": round((ocf + capex) / 1e8, 1) if ocf is not None and capex is not None else None,
         })
     return pd.DataFrame(rows).tail(quarters).reset_index(drop=True)
+
+
+def three_rates(prof: pd.DataFrame) -> str:
+    """三率（毛利率/營益率/淨利率）最新季 vs 上季 → 🔴三率三升／🟢三率三降／⚪互有增減。
+
+    「三率三升」＝獲利品質全面轉好（賣得貴、費用控得住、最後真的賺到），
+    是基本面最常用的一句話判斷。資料不足回「—」。
+    """
+    cols = ["毛利率%", "營益率%", "淨利率%"]
+    if prof is None or prof.empty or len(prof) < 2 or not all(c in prof.columns for c in cols):
+        return "—"
+    cur, prev = prof.iloc[-1], prof.iloc[-2]
+    if any(pd.isna(cur[c]) or pd.isna(prev[c]) for c in cols):
+        return "—"
+    ups = sum(1 for c in cols if cur[c] > prev[c])
+    if ups == 3:
+        return "🔴三率三升"
+    if ups == 0:
+        return "🟢三率三降"
+    return f"⚪{ups}升{3 - ups}降"
 
 
 # ---- 同業比較（DB 找同業 + FinMind 補估值/營收）----

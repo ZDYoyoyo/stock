@@ -90,7 +90,18 @@ python -m scripts.sync_data load               # 由 CSV 重建 stock.db
   ⚠️(2026-08 使用者調整)加「昨日」單日、拿掉「60日」季窗(太遠)。今/昨走 `run_all._day_flows(offset)`(0=今·1=昨)、
   10/20 走 `institution_flows`。改窗只需動 `MERGE_GROUPS`+`_GROUP_HEAD`+run_all 產生對應來源欄，MD 端自動跟(讀 `group_source_cols`)。
 - `src/tech_signal.py` — 技術面併欄：均線排列(5/10/20多空)、季線年線(60/240MA中長多空)、
-  20MA乖離%、52週位置%(近1年區間位置)、成交額億(資金權重)。需長歷史→靠滾動窗每日DB。
+  **半年線(120MA·中期分水嶺)**、20MA乖離%、52週位置%(近1年區間位置)、成交額億(資金權重)。需長歷史→靠滾動窗每日DB。
+- **風控/事件欄（2026-08 依使用者投資框架補洞，五軌＋第6軌全套用）**：
+  - `src/disposal.py` — **處置股/注意股警示**(免費 TWSE `announcement/punish`＋`notice`、TPEX `tpex_disposal_information`，各1call)。
+    處置＝人工分盤撮合(2~5分鐘一次)＋常需預收款券→**當沖/短線做不動，務必避開**。⚠️日期皆民國，TWSE 期間「115/08/10～115/08/14」、
+    TPEX「1150813~1150821」兩種格式，`_roc_to_iso`/`_period` 都吃；只標『期間內🚫/未開始⚠️』，已結束不標。
+  - `src/exdividend.py` — **除權息預告**(免費 TWSE `TWT48U_ALL`＋TPEX `tpex_exright_prepost`)。除息當天股價扣股利開盤，
+    不知情會把「參考價下修」誤判成大跌/跌破均線。只標近45天內。⚠️FinMind `TaiwanStockDividend` 不帶 data_id **只回單日快照**(要逐日打)，故走 TWSE/TPEX 預告表。
+  - `src/shareholding.py` — **外資持股%/市值億/周轉率%**(FinMind `TaiwanStockShareholding`，**1 call 全市場2366檔**)。
+    外資持股＝**存量**(與「外資今日買賣超」流量互補)；市值＝分大型/中小型股；周轉率＝量÷已發行股數(熱度，當沖比絕對量準)。
+    ⚠️單位：DB volume 已是張→分母股數要 /1000 再比。
+  - `src/risk.py` `levels()/enrich()` — **ATR 停損價/停損%/目標價**(純DB、一次向量化全市場)。停損＝收盤−2×ATR、目標＝2倍風險→
+    **風報比固定1:2故不另列欄**(寫在報告說明)。停損%因股而異＝用ATR而非固定%的理由。⚠️`plan_trade()`(張數/部位)需帶總資金→留在 `scripts.risk_calc`，不進日報。
 - `src/screeners/` — 各軌篩選器 + `landmine`(地雷偵測)。
 - `src/screeners/daytrade_snipe.py` — **第6軌 隔日沖鎖碼候選(實驗)**：DB 抓今日漲停/大漲(≥9%)→取成交額前N檔→
   分點算主力淨額(前15買+前15賣)，只對『主力淨買鎖碼』者比對此檔近窗『隔日沖常客』(反覆昨買今賣≥2次)→
@@ -135,6 +146,8 @@ python -m scripts.sync_data load               # 由 CSV 重建 stock.db
   📌**技術面(2026-08)**：`tech_snapshot`(複用 tech_signal/chip_signal/verdict→均線排列/季線年線/20MA乖離/52週位置/量能倍數/成交額＋綜合定調🔴/⚪/🟢)＋`ma_series`(收盤+MA5/20/60 疊圖，用完整歷史算 MA)。純 DB 免費。
   📌**基本面(2026-08，FinMind 逐檔~4~6 call)**：`monthly_revenue`(近12月營收 YoY/MoM/累計YoY)、`profitability`(近8季毛利率/營益率/淨利率/單季EPS/EPS年增，損益表**單季值**)、`valuation_snapshot`(PER/PBR/殖利率＋PER近1年位置%＋序列)、`dividends`(近年配息＋連續配息年數；⚠️FinMind `year`＝『114年第2季』民國+季，自解析民國年**按年彙總**、季配股不誤當年數，故不複用 `enrich.dividend_years`)。
   📌**財務體質(2026-08，三表健檢)**：`financial_health`(負債比/流動比/每股淨值/單季營運CF/含金量%/自由現金流)。⚠️**現金流是累計 YTD**(年內遞增·跨年重置)→`single_q` 同年內 diff **去累計還原單季**、Q1=YTD，不還原含金量會算爆；損益表淨利本就單季直接比。
+  📌**真實ROE＋三率三升(2026-08)**：`financial_health` 加 `ROE%`＝**近四季淨利TTM÷期末權益**(取代長期軌 PBR/PER 的粗估；實測2330=32.7%)；
+  `three_rates(prof)` 出🔴三率三升/🟢三率三降/⚪n升m降(最新季vs上季)，併入基本面票。
   📌**同業比較+財報紅旗+基本面定調(2026-08)**：`industry_peers`(產業別走 `enrich.industry_map` FinMind——**DB stock_info.industry 是空的**；同業依 DB 成交額排序取前 n)＋`peer_table`(PER/PBR/殖利率/月營收YoY 並排、★本檔)；財報紅旗複用 `landmine._fin_flags`(單一來源)出 callout；綜合定調＝`tech_snapshot._vote`(技術+籌碼)＋run_stock `_fund_vote`(營收YoY/EPS年增/含金量/紅旗)兩票相加→`verdict.label`（**不改共用 `verdict._vote`**，避免影響五軌日報）。
   HTML 有 **📈圖譜([7])**：收盤+均線/主力淨額/隔日沖賣壓%/當沖比%/借券/大戶＋基本面(營收YoY/EPS/PER)＋財務體質(負債比/營運CF)的內嵌 SVG 迷你圖。抓不到(免 Sponsor/無財報)graceful 留白。用法 `python -m scripts.run_stock 1303 --days 30`→`reports/stock/`。GUI「個股籌碼深掘」鈕＋`6_個股深掘.bat`。
 - `src/svgchart.py` — 極簡 inline SVG 迷你圖(`bars` 長條/紅正綠負、`line` 折線、`lines` 多序列共用y軸疊圖供均線用)：純 SVG+<title> tooltip、CSP-safe、明暗皆清楚。供深掘圖譜用。
