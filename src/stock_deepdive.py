@@ -497,4 +497,14 @@ def top_branches(sid: str, day: str, n: int = 10) -> tuple[pd.DataFrame, pd.Data
     s = sorted(net.items(), key=lambda z: z[1], reverse=True)
     buy = pd.DataFrame([{"分點": k, "淨買張": int(round(v))} for k, v in s[:n] if v > 0])
     sell = pd.DataFrame([{"分點": k, "淨賣張": int(round(v))} for k, v in s[::-1][:n] if v < 0])
+    # 標註跨股票分點檔案（這家是不是隔日沖慣犯／偏長線）——判斷買盤品質，零 API
+    try:
+        from . import broker_profile as bp
+        pmap = bp.as_map()
+        if pmap:
+            for d in (buy, sell):
+                if not d.empty:
+                    d["分點檔案"] = bp.annotate(d["分點"].tolist(), pmap)
+    except Exception:
+        pass
     return buy, sell

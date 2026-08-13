@@ -105,7 +105,9 @@ python -m scripts.sync_data load               # 由 CSV 重建 stock.db
 - `src/screeners/` — 各軌篩選器 + `landmine`(地雷偵測)。
 - `src/screeners/daytrade_snipe.py` — **第6軌 隔日沖鎖碼候選(實驗)**：DB 抓今日漲停/大漲(≥9%)→取成交額前N檔→
   分點算主力淨額(前15買+前15賣)，只對『主力淨買鎖碼』者比對此檔近窗『隔日沖常客』(反覆昨買今賣≥2次)→
-  今日大買分點命中常客則標🎯。挑明日對殺 arena。
+  今日大買分點列**兩份黑名單(分開欄、不同訊號)**：`全市場黑名單`＝跨所有股票的隔日沖慣犯(broker_profile，帶隔日沖率%、樣本大最可信)、
+  `本檔黑名單`＝專門玩這檔的常客(近窗、專屬但樣本小)；兩邊都上榜＝最該防。
+  ＋`預估賣壓張`/`預估賣壓佔量%`(前瞻，已回測單調有效見 broker_profile)。挑明日對殺 arena。
   📊**昨vs今欄(複用 `broker_signal._one`)**：`昨主力淨額`(T-1 前15買賣淨)→`今主力淨額`(T)看鎖碼是持續(昨買今也買)還已在倒(昨買今賣)；
   `隔日沖賣壓%`=昨日前15大買分點今日轉賣的對沖量÷今量＝**『昨進今出』實現驗證**(越高＝昨鎖碼今真在倒)。逐檔昨買今賣名單看個股深掘 `run_stock`。
   📊**判斷欄(run_all 沿用他軌 enrich 補上、不重抓)**：今日量張/量能倍數(爆量撐漲停?)、20MA乖離%/52週位置%(位階·追高風險)、均線排列/季線年線(趨勢)、
@@ -133,6 +135,16 @@ python -m scripts.sync_data load               # 由 CSV 重建 stock.db
 - `src/broker_client.py` — 券商分點日報 client(`TaiwanStockTradingDailyReport`, Sponsor)：`available()` 偵測、
   `branch_summary` 主力買賣超摘要。⚠️分點僅**單日**查(`end_date` 需 none/等於 start)、**原始上萬列/檔不落 DB**。
   ⚠️**必須 `load_dotenv()`**（2026-08 修）：本機 token 寫在專案 `.env`，漏這行則 `_TOKEN=""`→`available()` 誤判「分點不可用(需 Sponsor)」，但抓資料(finmind_client 有 load_dotenv)照常→症狀＝有 Sponsor 卻只有分點失效。凡直接讀 FINMIND_TOKEN 的模組都要 load_dotenv。
+- `src/broker_profile.py` — **跨股票『分點行為檔案』(2026-08)**：把已累積的 `broker_net` 快取**跨所有股票/日期**聚合成
+  每個分點的 `隔日沖率%`(進前15大買後隔日轉賣的次數比)＋`回吐量%`(實際對沖張數比)＋樣本數/股票數(可信度)＋
+  分類(🔥隔日沖大戶≥65 / ⚠️偏隔日沖≥50 / ➖中性 / 🏦偏長線<30)。**零 API**(只讀本機快取)。
+  解決舊做法「單檔8天內≥2次」樣本太小的問題(實測 730 分點建檔；台新松德71.8%/110樣本 vs 大和國泰19.7%/173樣本，分離清楚)。
+  `expected_pressure()`＝**前瞻預估賣壓**＝Σ(今日各分點淨買張×該分點歷史回吐量%)，今天就能估明日倒貨量。
+  ⚠️`build(before=日期)` 供回測 point-in-time 用(不傳=用全部歷史，日常報告就該這樣)。
+  ⚠️快取本機累積、不進 git → 新機器樣本少，靠 `min_ops` 過濾＋報告顯示樣本數讓使用者判斷。
+  🔬**已回測**(`scripts/backtest_broker_profile.py`，356樣本·point-in-time)：**單調有效**——預估賣壓佔量% 最高四分位
+  隔日盤中 **−1.92%**(跌比59.8%) vs 最低組 −0.27%(50%)，相關 −0.12；**比舊🎯(各組都≈−0.8%、無鑑別力)明顯進步**。
+  ⚠️edge 仍薄(扣當沖成本有限)、樣本期短、快取偏向報告候選股 → 當**排序/警示連續變數**用。報告 `reports/broker_profile_backtest.md`。
 - `src/broker_signal.py` — 分點主力淨額＋隔日沖偵測 enrich(需 Sponsor)：`compute(ids, day, prev, vol_map)` 出
   「主力淨額(前15買超+前15賣超淨額)」＋「隔日沖賣壓%(昨日前15大買超分點今日轉淨賣量÷今日量→抓昨進今出大戶倒貨、
   補當沖比看不到的隔日沖盲區)」。逐檔 on-demand(每檔 T/T-1 各1 call)、僅對顯示候選(head 20/軌)。run_all 已接。

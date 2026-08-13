@@ -8,7 +8,10 @@
    無 Sponsor 時仍出『漲停清單』(主力/隔日沖欄留白)。
 
 由 DB 價量抓漲停/大漲 → 取成交額前 N 檔(流動性+控分點 call) → 分點算主力淨額+今日大買分點
-→ 只對『主力淨買鎖碼』者比對近窗隔日沖常客 → 標記🎯。
+→ 只對『主力淨買鎖碼』者列兩份黑名單：
+  **全市場黑名單**＝跨所有股票的隔日沖慣犯(broker_profile，樣本大、帶隔日沖率%)
+  **本檔黑名單**＝專門在這檔反覆昨買今賣的分點(近窗、專屬但樣本小)
+＋**預估賣壓張/佔量%**＝今日這些人買的量 × 各自歷史回吐率(前瞻，今天就能算)。
 """
 from __future__ import annotations
 
@@ -19,11 +22,13 @@ from ..db import connect
 _GAIN_TH = 9.0     # 漲停 proxy：台股漲停 +10%，≥9% 捕捉漲停＋逼近漲停
 _TOP_N = 15        # 只取成交額前 N 檔（當沖要流動性；也控分點 call 數）
 _LOOKBACK = 8      # 隔日沖常客回看交易日數
-_MIN_HITS = 2      # 窗內『昨買今賣』≥此次數才算此檔的隔日沖常客
+_MIN_HITS = 2      # 窗內『昨買今賣』≥此次數才算此檔的隔日沖常客（本檔黑名單）
+_MID_RATE = 50     # 跨股票隔日沖率≥此%才進全市場黑名單（對齊 broker_profile._MID）
 _TOP = 15          # 主力＝前幾大分點（對齊 broker_signal）
 
 _COLS = ["stock_id", "name", "market", "產業", "close", "漲跌%", "成交額億",
-         "當沖比率%", "昨主力淨額", "今主力淨額", "隔日沖賣壓%", "隔日沖鎖碼"]
+         "當沖比率%", "昨主力淨額", "今主力淨額", "隔日沖賣壓%",
+         "預估賣壓張", "預估賣壓佔量%", "全市場黑名單", "本檔黑名單"]
 
 
 def _regulars(sid: str, dates: list[str]) -> set:
@@ -99,11 +104,14 @@ def run(gain_th: float = _GAIN_TH, top_n: int = _TOP_N, lookback: int = _LOOKBAC
     except Exception:
         df["當沖比率%"] = pd.NA
 
-    # 3) 分點：昨/今主力淨額 + 隔日沖賣壓%(昨買今賣實現) + 隔日沖鎖碼🎯（需 Sponsor；否則留白）
+    # 3) 分點：昨/今主力淨額 + 隔日沖賣壓%(昨買今賣實現) + 兩份黑名單 + 預估賣壓（需 Sponsor；否則留白）
     from .. import broker_client as bc
-    prev_net, main_net, sell_pressure, lock = {}, {}, {}, {}
+    prev_net, main_net, sell_pressure = {}, {}, {}
+    market_bl, stock_bl, est_lots, est_pct = {}, {}, {}, {}
     if bc.available():
         from .. import broker_signal as bs
+        from .. import broker_profile as bp
+        pmap = bp.as_map()                       # 跨股票分點檔案（讀本機快取、零 API）
         win = dates[-(lookback + 1):]
         volmap = cur["volume"].to_dict()
         for sid in df["stock_id"]:
@@ -118,17 +126,32 @@ def run(gain_th: float = _GAIN_TH, top_n: int = _TOP_N, lookback: int = _LOOKBAC
                 vy = sorted(net_y.values(), reverse=True)
                 prev_net[sid] = int(round(sum(x for x in vy[:_TOP] if x > 0)
                                           + sum(x for x in vy[-_TOP:] if x < 0)))
-            if one["主力淨額"] > 0:                             # 只對『今日主力淨買鎖碼』者查隔日沖常客（省 call）
+            if one["主力淨額"] > 0:                             # 只對『今日主力淨買鎖碼』者查隔日沖名單（省 call）
                 net_t = bs._branch_net(sid, today)             # 快取，_one 已抓過 T
                 top_buyers = {k for k, v in sorted(net_t.items(), key=lambda z: z[1], reverse=True)[:_TOP]
                               if v > 0}
-                regs = _regulars(sid, win) & top_buyers
-                if regs:
-                    lock[sid] = "🎯 " + "、".join(list(regs)[:2])
+                # 兩份黑名單分開列（不同訊號，別混）：
+                #  ①全市場＝跨所有股票的慣犯(樣本大、可信)  ②本檔＝專門玩這檔的(專屬、樣本小)
+                mkt = sorted((k for k in top_buyers if (pmap.get(k) or (0,))[0] >= _MID_RATE),
+                             key=lambda k: -pmap[k][0])
+                if mkt:
+                    market_bl[sid] = "、".join(f"{k}{int(pmap[k][0])}%" for k in mkt[:2]) + \
+                                     (f" +{len(mkt) - 2}" if len(mkt) > 2 else "")
+                own = sorted(_regulars(sid, win) & top_buyers)
+                if own:
+                    stock_bl[sid] = "、".join(own[:2]) + (f" +{len(own) - 2}" if len(own) > 2 else "")
+                # 前瞻預估：今日這些人買的量 × 各自歷史回吐率 → 明日潛在賣壓
+                est = bp.expected_pressure(net_t, volmap.get(sid), pmap)
+                if est:
+                    est_lots[sid] = est.get("預估賣壓張")
+                    est_pct[sid] = est.get("預估賣壓佔量%")
     df["昨主力淨額"] = df["stock_id"].map(prev_net).astype("Int64")
     df["今主力淨額"] = df["stock_id"].map(main_net).astype("Int64")
     df["隔日沖賣壓%"] = df["stock_id"].map(sell_pressure)
-    df["隔日沖鎖碼"] = df["stock_id"].map(lock)
+    df["預估賣壓張"] = df["stock_id"].map(est_lots).astype("Int64")
+    df["預估賣壓佔量%"] = df["stock_id"].map(est_pct)
+    df["全市場黑名單"] = df["stock_id"].map(market_bl)
+    df["本檔黑名單"] = df["stock_id"].map(stock_bl)
 
     df = df[_COLS]
     df.attrs["asof"] = today
