@@ -23,7 +23,7 @@ from collections import defaultdict
 
 import pandas as pd
 
-from .db import connect
+from .db import connect, upsert
 
 _TOP = 15          # 「大買超」＝當日前幾大買超分點（對齊 broker_signal._TOP）
 _MIN_OPS = 10      # 至少幾次「進前15大買」樣本才納入檔案（低於此不可信）
@@ -34,6 +34,21 @@ _MID = 50          # ≥ → ⚠️偏隔日沖
 _LONG = 30         # < → 🏦偏長線（買了不隔日跑）
 
 _COLS = ["分點", "隔日沖率%", "回吐量%", "樣本數", "股票數", "分點類型"]
+
+
+def trading_days() -> list:
+    """DB price 表的交易日清單（判斷兩筆快取是否真的『相鄰交易日』）。"""
+    try:
+        with connect() as c:
+            return [r[0] for r in c.execute(
+                "SELECT DISTINCT date FROM price ORDER BY date").fetchall()]
+    except Exception:
+        return []
+
+
+def _next_day_map(days: list) -> dict:
+    """{交易日: 下一個交易日}。"""
+    return {d: days[i + 1] for i, d in enumerate(days[:-1])}
 
 
 def load_cache() -> dict:
@@ -50,6 +65,95 @@ def load_cache() -> dict:
         except Exception:
             continue
     return by
+
+
+# ---- 持久化累計計數器（進 DB＋CSV→git，不受 broker_net 只留 60 天 / 容器重置影響）----
+
+def update_from_cache(top: int = _TOP) -> dict:
+    """把快取中『尚未折算過』的買進日折進累計計數器。**冪等**（同日重跑不重複累加）。
+
+    為什麼需要：`broker_signal.prune_cache(keep_days=60)` 每天刪掉 60 天前的快取，
+    容器重置更是整個清空 → 只靠快取算，檔案永遠只有 60 天、換機歸零。
+    這裡把「已看過的買進日」記在 broker_profile_seen，計數器一路累加，
+    隨 sync_data 進 CSV/git → 樣本數會**跨機器、跨月累積**。
+
+    回 {新增轉換, 分點數, 總樣本}。
+    """
+    from datetime import date as _date
+    by = load_cache()
+    if not by:
+        return {"新增轉換": 0, "分點數": 0, "總樣本": 0}
+    nxt = _next_day_map(trading_days())      # ⚠️只認『真正相鄰交易日』的配對
+
+    with connect() as c:
+        seen = {(r[0], r[1]) for r in c.execute(
+            "SELECT stock_id, date FROM broker_profile_seen").fetchall()}
+        cur = {r[0]: {"ops": r[1] or 0, "flips": r[2] or 0, "bought": r[3] or 0.0,
+                      "dumped": r[4] or 0.0, "stocks": set(json.loads(r[5] or "[]"))}
+               for r in c.execute(
+                   "SELECT broker, ops, flips, bought, dumped, stocks FROM broker_profile").fetchall()}
+
+        new_seen, added = [], 0
+        for sid, dm in by.items():
+            ds = sorted(dm)
+            for i in range(len(ds) - 1):
+                d0, d1 = ds[i], ds[i + 1]
+                if (sid, d0) in seen:
+                    continue                     # 這個買進日已折算過
+                if nxt.get(d0) != d1:
+                    continue                     # 快取有缺日→這兩筆不相鄰，不能當「隔日」
+                n0, n1 = dm[d0], dm[d1]
+                buyers = sorted(((k, v) for k, v in n0.items() if v > 0),
+                                key=lambda z: z[1], reverse=True)[:top]
+                for k, v in buyers:
+                    s = cur.setdefault(k, {"ops": 0, "flips": 0, "bought": 0.0,
+                                           "dumped": 0.0, "stocks": set()})
+                    s["ops"] += 1
+                    s["bought"] += v
+                    s["stocks"].add(sid)
+                    t = n1.get(k, 0)
+                    if t < 0:
+                        s["flips"] += 1
+                        s["dumped"] += min(v, -t)
+                new_seen.append({"stock_id": sid, "date": d0})
+                added += 1
+
+        if new_seen:
+            now = _date.today().isoformat()
+            upsert(c, "broker_profile_seen", new_seen)
+            upsert(c, "broker_profile", [
+                {"broker": k, "ops": s["ops"], "flips": s["flips"],
+                 "bought": round(s["bought"], 1), "dumped": round(s["dumped"], 1),
+                 "stocks": json.dumps(sorted(s["stocks"]), ensure_ascii=False), "updated": now}
+                for k, s in cur.items()])
+    return {"新增轉換": added, "分點數": len(cur),
+            "總樣本": sum(s["ops"] for s in cur.values())}
+
+
+def _from_db(min_ops: int) -> pd.DataFrame:
+    """讀持久化計數器 → 檔案表。無資料回空表。"""
+    try:
+        with connect() as c:
+            rows = c.execute(
+                "SELECT broker, ops, flips, bought, dumped, stocks FROM broker_profile").fetchall()
+    except Exception:
+        return pd.DataFrame(columns=_COLS)
+    out = []
+    for k, ops, flips, bought, dumped, stocks in rows:
+        if not ops or ops < min_ops:
+            continue
+        rate = round((flips or 0) / ops * 100, 1)
+        try:
+            ns = len(json.loads(stocks or "[]"))
+        except Exception:
+            ns = 0
+        out.append({"分點": k, "隔日沖率%": rate,
+                    "回吐量%": round((dumped or 0) / bought * 100, 1) if bought else 0.0,
+                    "樣本數": ops, "股票數": ns, "分點類型": _label(rate)})
+    if not out:
+        return pd.DataFrame(columns=_COLS)
+    return (pd.DataFrame(out).sort_values(["隔日沖率%", "樣本數"], ascending=False)
+            .reset_index(drop=True))
 
 
 def _label(rate: float) -> str:
@@ -70,15 +174,24 @@ def build(min_ops: int = _MIN_OPS, top: int = _TOP, before: str | None = None,
     否則等於拿未來資料判斷過去（前視偏誤）；日常跑報告不用傳（就是要用全部歷史）。
     cache 可預先載入重用（回測逐日重建時避免每次重讀 DB）。
     """
+    # 日常用：優先讀持久化計數器（跨機器/跨月累積、不受 60 天修剪影響）。
+    # before/cache 是回測 point-in-time 專用 → 那時只能從快取現算。
+    if before is None and cache is None:
+        persisted = _from_db(min_ops)
+        if not persisted.empty:
+            return persisted
     by = cache if cache is not None else load_cache()
     if not by:
         return pd.DataFrame(columns=_COLS)
 
+    nxt = _next_day_map(trading_days())          # ⚠️只認相鄰交易日（快取稀疏，會有缺日）
     stat: dict[str, dict] = defaultdict(
         lambda: {"ops": 0, "flips": 0, "bought": 0.0, "dumped": 0.0, "stocks": set()})
     for sid, dm in by.items():
         ds = sorted(d for d in dm if before is None or d < before)
         for i in range(len(ds) - 1):
+            if nxt.get(ds[i]) != ds[i + 1]:
+                continue
             n0, n1 = dm[ds[i]], dm[ds[i + 1]]
             buyers = sorted(((k, v) for k, v in n0.items() if v > 0),
                             key=lambda z: z[1], reverse=True)[:top]

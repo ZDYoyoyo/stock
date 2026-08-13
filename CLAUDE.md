@@ -141,10 +141,19 @@ python -m scripts.sync_data load               # 由 CSV 重建 stock.db
   解決舊做法「單檔8天內≥2次」樣本太小的問題(實測 730 分點建檔；台新松德71.8%/110樣本 vs 大和國泰19.7%/173樣本，分離清楚)。
   `expected_pressure()`＝**前瞻預估賣壓**＝Σ(今日各分點淨買張×該分點歷史回吐量%)，今天就能估明日倒貨量。
   ⚠️`build(before=日期)` 供回測 point-in-time 用(不傳=用全部歷史，日常報告就該這樣)。
-  ⚠️快取本機累積、不進 git → 新機器樣本少，靠 `min_ops` 過濾＋報告顯示樣本數讓使用者判斷。
-  🔬**已回測**(`scripts/backtest_broker_profile.py`，356樣本·point-in-time)：**單調有效**——預估賣壓佔量% 最高四分位
-  隔日盤中 **−1.92%**(跌比59.8%) vs 最低組 −0.27%(50%)，相關 −0.12；**比舊🎯(各組都≈−0.8%、無鑑別力)明顯進步**。
-  ⚠️edge 仍薄(扣當沖成本有限)、樣本期短、快取偏向報告候選股 → 當**排序/警示連續變數**用。報告 `reports/broker_profile_backtest.md`。
+  📌**累計計數器持久化(2026-08)**：`update_from_cache()` 把快取折進 DB `broker_profile`(每分點一列:ops/flips/bought/dumped/stocks)
+  ＋`broker_profile_seen`(已折算的買進日，**冪等**不重複累加)，**兩張表進 sync_data→CSV→git**(~300KB)。
+  為什麼要：`prune_cache(keep_days=60)` 每天刪 60 天前快取、容器重置更是清空 → 只靠快取算則檔案**永遠只有60天且換機歸零**；
+  存計數器才能**跨機器/跨月無限累積**。`build()` 日常優先讀持久化計數器，回測(before/cache)才從快取現算。
+  ⚠️**run_all `_update` 順序：先 `update_from_cache()` 再 `prune_cache()`**，反了會漏算被剪掉的資料。
+  ⚠️**相鄰交易日檢查**(`trading_days()`/`_next_day_map`)：快取稀疏(只抓候選股)常缺日，D1→D5 不是「隔日」不能算(2026-08 修，剔除約4%假配對)。
+  📌**本機工具**：`python -m scripts.run_broker_profile`(＝控制台「📇 分點黑名單」鈕＋`一鍵執行/7_分點黑名單.bat`)
+  → 更新計數器＋出排行報告 `reports/broker_profile.md/.html`(🔥隔日沖大戶/⚠️偏隔日沖/🏦偏長線三榜)。
+  🔬**已回測**(`scripts/backtest_broker_profile.py`，356樣本·point-in-time)：預估賣壓佔量% **最高四分位隔日盤中 −1.64%**
+  (跌比56.8%) vs 最低組 −0.72%，相關 −0.10；**鎖碼股子集單調**(低−0.33/中−0.73/高−1.42)。優於舊🎯(各組≈−0.8%、無鑑別力)。
+  ⚠️**全體四組非乾淨單調**(Q1比Q2/Q3差)、edge 薄(扣當沖成本有限)、樣本期短、快取偏向報告候選股 → 當**排序/警示連續變數**用。
+  ⚠️(2026-08修)原版把快取「缺日」誤當隔日(D1→D5也算隔日沖)→已加**相鄰交易日檢查**；修正後數字比初版弱(初版誤為−1.92%單調)。
+  報告 `reports/broker_profile_backtest.md`。
 - `src/broker_signal.py` — 分點主力淨額＋隔日沖偵測 enrich(需 Sponsor)：`compute(ids, day, prev, vol_map)` 出
   「主力淨額(前15買超+前15賣超淨額)」＋「隔日沖賣壓%(昨日前15大買超分點今日轉淨賣量÷今日量→抓昨進今出大戶倒貨、
   補當沖比看不到的隔日沖盲區)」。逐檔 on-demand(每檔 T/T-1 各1 call)、僅對顯示候選(head 20/軌)。run_all 已接。

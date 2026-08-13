@@ -118,6 +118,8 @@ class Console:
         self._btn(p, "🔬 個股籌碼深掘(病歷表)", self.deepdive, "#eef4ff")
         self._btn(p, "🚀 月營收動能T12", lambda: self.run(["scripts.run_t12"], "月營收動能"), "#e8fbef")
         self._btn(p, "🏦 主力籌碼排行", lambda: self.run(["scripts.run_mainforce"], "主力籌碼"), "#eef4ff")
+        self._btn(p, "📇 分點黑名單(隔日沖慣犯)",
+                  lambda: self.run(["scripts.run_broker_profile"], "分點黑名單"), "#fff4e5")
         self._btn(p, "🟢 長期價值(單獨跑)", lambda: self.run(["scripts.run_longterm"], "長期價值"))
         self._btn(p, "🔴 當沖候選", lambda: self.run(["scripts.run_daytrade"], "當沖候選"))
         self._btn(p, "🔬 基本面深掘", lambda: self.run(["scripts.run_t30"], "深掘"))

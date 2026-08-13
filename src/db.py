@@ -81,6 +81,22 @@ CREATE TABLE IF NOT EXISTS day_trade (
     dt_vol INTEGER,           -- 當日沖銷成交量（張）；當沖比%＝dt_vol÷price.volume
     PRIMARY KEY (date, stock_id)
 );
+CREATE TABLE IF NOT EXISTS broker_profile (
+    -- 分點行為『累計計數器』（進 git CSV）：broker_net 快取只留 60 天且容器重置會清空，
+    -- 但聚合後每分點只有一列 → 存起來就能無限累積歷史，換機/重置也不歸零。
+    broker TEXT PRIMARY KEY,  -- 分點名
+    ops INTEGER,              -- 進前15大買超的總次數（樣本數）
+    flips INTEGER,            -- 其中隔日轉淨賣的次數
+    bought REAL,              -- 累計買進張（分母）
+    dumped REAL,              -- 累計隔日對沖掉的張（分子）
+    stocks TEXT,              -- 涵蓋過的 stock_id JSON 陣列（算「跨幾檔」可信度）
+    updated TEXT
+);
+CREATE TABLE IF NOT EXISTS broker_profile_seen (
+    -- 已折算進計數器的『買進日』(冪等用；同一天重跑不會重複累加)
+    stock_id TEXT, date TEXT,
+    PRIMARY KEY (stock_id, date)
+);
 """
 
 

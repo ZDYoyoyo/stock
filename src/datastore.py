@@ -27,6 +27,10 @@ _TABLES = {
     "sbl": ["date", "stock_id"],
     "day_trade": ["date", "stock_id"],
     "stock_info": ["stock_id"],
+    # 分點行為累計計數器：聚合後很小(每分點一列)，進 git 才能跨機器/跨月累積
+    # （原始 broker_net 快取太大不進 git，且只留 60 天）
+    "broker_profile": ["broker"],
+    "broker_profile_seen": ["stock_id", "date"],
 }
 
 
