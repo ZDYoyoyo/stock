@@ -76,3 +76,43 @@ def test_snipe_ohlc_pick_label_on_non_trading_day():
     so = pt.snipe_ohlc("D4")
     assert so["date"] == "D1" and so["trade_date"] == "D3"   # 基準退到 D1、今日 D3
     assert so["rows"][0]["跳空%"] == 8.0                      # 昨收100(D1)→今開108(D3)
+
+
+def test_snipe_ohlc_explain_columns():
+    """解釋漲跌原因的欄：預估vs實際賣壓、今主力淨額、高檔回落%、振幅%、量能倍數、當沖比%。"""
+    from src import db, picks_tracker as pt
+    import pandas as pd
+    # D1 收100；D2 開108 高110 低101 收102（衝高後回落）
+    price = [{"date": "D1", "stock_id": "9999", "open": 95, "high": 100, "low": 94,
+              "close": 100, "volume": 100},
+             {"date": "D2", "stock_id": "9999", "open": 108, "high": 110, "low": 101,
+              "close": 102, "volume": 500}]
+    with db.connect() as conn:
+        db.upsert(conn, "price", price)
+        db.upsert(conn, "day_trade", [{"date": "D2", "stock_id": "9999", "dt_vol": 250}])
+    # 存 pick 時一併記下當時的預估賣壓
+    pt.save("D1", {"隔日沖鎖碼": pd.DataFrame(
+        [{"stock_id": "9999", "name": "妖股", "今主力淨額": 1234, "預估賣壓佔量%": 6.5}])}, n=15)
+
+    so = pt.snipe_ohlc("D3")
+    r = so["rows"][0]
+    assert r["預估賣壓%"] == 6.5                  # 昨天存下的預測值
+    assert r["高檔回落%"] == -7.27                # (102-110)/110 衝高後被倒
+    assert r["振幅%"] == 9.0                      # (110-101)/100
+    assert r["當沖比%"] == 50.0                   # 250/500
+    # 量能倍數：前一日量100、今日500 → 5倍（樣本<5日則留空，這裡僅1日→NA）
+    assert "量能倍數" in r
+    # 分點不可用（測試環境無 Sponsor）→ 實際賣壓/今主力淨額留白，不炸
+    assert "實際賣壓%" in r and "今主力淨額" in r
+
+
+def test_picks_csv_backward_compatible(tmp_path, monkeypatch):
+    """舊 picks.csv 沒有『預估賣壓%』欄也要能讀（向後相容）。"""
+    from src import picks_tracker as pt
+    import pandas as pd
+    old = tmp_path / "old_picks.csv"
+    pd.DataFrame([{"date": "D1", "track": "隔日沖鎖碼", "rank": 1,
+                   "stock_id": "9999", "name": "妖股"}]).to_csv(old, index=False)
+    monkeypatch.setattr(pt, "PICKS_CSV", old)
+    df = pt._load()
+    assert "預估賣壓%" in df.columns and pd.isna(df.iloc[0]["預估賣壓%"])

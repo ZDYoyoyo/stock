@@ -12,15 +12,16 @@ from .config import DATA_DIR
 from .screeners import chip_diagnosis as cd
 
 PICKS_CSV = DATA_DIR / "history" / "picks.csv"
-_COLS = ["date", "track", "rank", "stock_id", "name", "主力淨額"]
+_COLS = ["date", "track", "rank", "stock_id", "name", "主力淨額", "預估賣壓%"]
 
 
 def _load() -> pd.DataFrame:
     if not PICKS_CSV.exists():
         return pd.DataFrame(columns=_COLS)
     df = pd.read_csv(PICKS_CSV, dtype={"stock_id": str})
-    if "主力淨額" not in df.columns:          # 舊檔無此欄→補空，向後相容
-        df["主力淨額"] = pd.NA
+    for c in ("主力淨額", "預估賣壓%"):        # 舊檔無此欄→補空，向後相容
+        if c not in df.columns:
+            df[c] = pd.NA
     return df
 
 
@@ -28,7 +29,8 @@ def save(today: str, tracks: dict, n: int = 15) -> pd.DataFrame:
     """把今天各軌前 n 名存進 picks.csv（同日重跑會覆蓋當日，不重複累積）。
 
     tracks: {軌名: DataFrame(需含 stock_id, name)}。若 df 有『今主力淨額』欄
-    （隔日沖鎖碼軌）一併存下 → 追蹤時可直接顯示『當時鎖碼買了多少』，免重算。
+    （隔日沖鎖碼軌）一併存下 → 追蹤時可直接顯示『當時鎖碼買了多少』，免重算；
+    『預估賣壓佔量%』同理存下 → 隔日可比對「預測 vs 實際」賣壓。
     """
     df = _load()
     df = df[df["date"] != today]  # 同日全清後重寫
@@ -38,9 +40,11 @@ def save(today: str, tracks: dict, n: int = 15) -> pd.DataFrame:
             continue
         for rank, (_, r) in enumerate(tdf.head(n).iterrows(), 1):
             mf = r.get("今主力淨額", pd.NA)
+            ep = r.get("預估賣壓佔量%", pd.NA)       # 當時『預測』明日賣壓 → 隔日可對照實際
             rows.append({"date": today, "track": track, "rank": rank,
                          "stock_id": str(r["stock_id"]), "name": r.get("name", ""),
-                         "主力淨額": int(mf) if pd.notna(mf) else pd.NA})
+                         "主力淨額": int(mf) if pd.notna(mf) else pd.NA,
+                         "預估賣壓%": ep if pd.notna(ep) else pd.NA})
     if rows:
         df = pd.concat([df, pd.DataFrame(rows)], ignore_index=True)
     df = df.sort_values(["date", "track", "rank"]).reset_index(drop=True)
@@ -87,9 +91,14 @@ def snipe_ohlc(today: str, track: str = "隔日沖鎖碼") -> dict:
     """昨日『隔日沖鎖碼候選』→ 今日開高低收走勢（具體看『開高走低』有沒有發生）。
 
     回傳 {"date": 昨日, "trade_date": 今交易日,
-          "rows": [{rank, stock_id, name, 鎖碼淨額, 昨收, 今開, 今高, 今低, 今收, 漲跌%, 跳空%, 盤中%}]}。
+          "rows": [{rank, stock_id, name, 鎖碼淨額, 預估賣壓%, 實際賣壓%, 今主力淨額,
+                    昨收, 今開, 今高, 今低, 今收, 漲跌%, 跳空%, 盤中%, 高檔回落%, 振幅%,
+                    量能倍數, 當沖比%}]}。
       鎖碼淨額＝pick 當日主力淨額(前15買+前15賣)＝『當時鎖碼買了多少』(存檔時記下、免重算)。
       跳空%＝(今開−昨收)/昨收（隔夜高開幅度）；盤中%＝(今收−今開)/今開（開高走低幅度，負=走低）。
+      **解釋漲跌原因的欄**：預估賣壓%(昨天預測)vs實際賣壓%(今天真的倒多少)＝預測有沒有兌現；
+      今主力淨額(今天主力續買撐盤/在倒)；高檔回落%(衝高後被倒 vs 守住高檔)；
+      振幅%/量能倍數/當沖比%(對殺熱度)。分點欄需 Sponsor，抓不到留白。
     無前一日鎖碼紀錄 / 無今日價量 → 回 {}。
     """
     df = _load()
@@ -100,7 +109,7 @@ def snipe_ohlc(today: str, track: str = "隔日沖鎖碼") -> dict:
         return {}
     from .db import connect
     with connect() as conn:
-        px = pd.read_sql("SELECT date, stock_id, open, high, low, close FROM price", conn)
+        px = pd.read_sql("SELECT date, stock_id, open, high, low, close, volume FROM price", conn)
     if px.empty:
         return {}
     trading = sorted(px["date"].unique())
@@ -114,6 +123,43 @@ def snipe_ohlc(today: str, track: str = "隔日沖鎖碼") -> dict:
     yclose = px[px["date"] == ref].set_index("stock_id")["close"]
     sub = picks[picks["date"] == pdate].sort_values("rank")
     mf_map = dict(zip(sub["stock_id"].astype(str), sub["主力淨額"]))   # 存檔時記下的當日鎖碼淨額
+    ep_map = dict(zip(sub["stock_id"].astype(str), sub["預估賣壓%"]))  # 當時預測的明日賣壓
+
+    # ---- 解釋今天為何漲/跌的欄位（都對照 ref→tdate 這一天）----
+    ids = [str(x) for x in sub["stock_id"]]
+    volmap = cur["volume"].to_dict() if "volume" in cur.columns else {}
+    # 量能倍數＝今日量÷前20日均量（爆量=換手/對殺、量縮=沒人接）
+    vr_map = {}
+    with connect() as conn:
+        vhist = pd.read_sql("SELECT date, stock_id, volume FROM price WHERE stock_id IN "
+                            f"({','.join('?' * len(ids))})", conn, params=ids) if ids else pd.DataFrame()
+        dtv = pd.read_sql("SELECT stock_id, dt_vol FROM day_trade WHERE date=?",
+                          conn, params=(tdate,))
+    if not vhist.empty:
+        for sid, g in vhist.sort_values("date").groupby("stock_id"):
+            prev20 = g[g["date"] < tdate]["volume"].tail(20)
+            v = volmap.get(sid)
+            if len(prev20) >= 5 and prev20.mean() > 0 and v:
+                vr_map[sid] = round(v / prev20.mean(), 2)
+    dt_map = {r.stock_id: round(r.dt_vol / volmap[r.stock_id] * 100, 1)
+              for r in dtv.itertuples() if volmap.get(r.stock_id, 0) > 0}
+
+    # 實際隔日沖賣壓%＝昨日前15大買分點今日轉賣的對沖量÷今量（＝昨天鎖碼的人今天真的倒了沒）
+    # ＋今主力淨額（今天主力是續買撐盤還是在倒）。需 Sponsor 分點；走本機快取多半免重抓。
+    real_map, tnet_map = {}, {}
+    try:
+        from . import broker_client as bc
+        if bc.available():
+            from . import broker_signal as bs
+            for sid in ids:
+                one = bs._one(sid, tdate, ref, volmap.get(sid))
+                if one:
+                    tnet_map[sid] = one.get("主力淨額")
+                    if "隔日沖賣壓%" in one:
+                        real_map[sid] = one["隔日沖賣壓%"]
+    except Exception:
+        pass
+
     rows = []
     for r in sub.itertuples():
         sid = str(r.stock_id)
@@ -124,14 +170,23 @@ def snipe_ohlc(today: str, track: str = "隔日沖鎖碼") -> dict:
         yc = yclose[sid]
         if not yc or yc <= 0 or not o or o <= 0 or pd.isna(o) or pd.isna(c):
             continue
-        mf = mf_map.get(sid)
+        mf, ep = mf_map.get(sid), ep_map.get(sid)
+        tn = tnet_map.get(sid)
         rows.append({"rank": int(r.rank), "stock_id": sid, "name": r.name,
                      "鎖碼淨額": int(mf) if pd.notna(mf) else pd.NA,
+                     "預估賣壓%": ep if pd.notna(ep) else pd.NA,
+                     "實際賣壓%": real_map.get(sid, pd.NA),
+                     "今主力淨額": int(tn) if tn is not None and pd.notna(tn) else pd.NA,
                      "昨收": round(yc, 2), "今開": round(o, 2), "今高": round(h, 2),
                      "今低": round(l, 2), "今收": round(c, 2),
                      "漲跌%": round((c - yc) / yc * 100, 2),
                      "跳空%": round((o - yc) / yc * 100, 2),
-                     "盤中%": round((c - o) / o * 100, 2)})
+                     "盤中%": round((c - o) / o * 100, 2),
+                     # 高檔回落%＝今收 vs 今高：跌深＝衝高後被倒貨；接近0＝守在高檔
+                     "高檔回落%": round((c - h) / h * 100, 2) if h and h > 0 else pd.NA,
+                     "振幅%": round((h - l) / yc * 100, 2) if h and l else pd.NA,
+                     "量能倍數": vr_map.get(sid, pd.NA),
+                     "當沖比%": dt_map.get(sid, pd.NA)})
     return {"date": ref, "trade_date": tdate, "rows": rows} if rows else {}
 
 
