@@ -94,3 +94,39 @@ def test_price_filter_control_and_js_present():
     page = rh.build("2026-08-11", {"regime": "中性"}, ["x"], "sox",
                     [{"title": "測試軌", "df": df, "cols": ["stock_id", "name", "今日收盤"], "signed": []}])
     assert 'id="pxmax"' in page and "function pxApply" in page
+
+
+# ---- 各軌回測驗證徽章（避免看到清單就當成保證會賺）----
+
+def test_backtest_verdicts_cover_all_tracks():
+    for key in ("T11", "T16", "T12", "長期", "當沖", "隔日沖鎖碼"):
+        lvl, short, detail = rh.BACKTEST_VERDICTS[key]
+        assert lvl in ("ok", "no", "warn") and short and detail
+    # 只有 T16 通過嚴格樣本外；T11/T12/長期 無 edge
+    assert rh.BACKTEST_VERDICTS["T16"][0] == "ok"
+    assert all(rh.BACKTEST_VERDICTS[k][0] == "no" for k in ("T11", "T12", "長期"))
+
+
+def test_verdict_badge_and_md():
+    badge = rh._verdict_badge("T12")
+    assert 'class="bt bt-no"' in badge and "❌" in badge and "樣本外失效" in badge
+    assert rh.verdict_md("T16").startswith("🔬 **回測驗證：✅")
+    assert rh._verdict_badge(None) == "" and rh.verdict_md("持股") == ""   # 無此軌→不顯示
+
+
+def test_build_puts_badge_in_heading():
+    df = pd.DataFrame([{"stock_id": "2330", "name": "台積電", "今日收盤": 1085.0}])
+    page = rh.build("2026-08-16", {"regime": "中性"}, ["x"], "sox",
+                    [{"bt": "T16", "title": "🟡 波段｜T16 抗跌強勢", "df": df,
+                      "cols": ["stock_id", "name", "今日收盤"], "signed": []}])
+    assert "🟡 波段｜T16 抗跌強勢<span class=\"bt bt-ok\">" in page
+
+
+def test_no_csv_note_makes_no_false_promise():
+    """未輸出 CSV 時不可寫「完整清單見 CSV」（該檔根本不存在）。"""
+    df = pd.DataFrame([{"stock_id": f"{i}", "name": "x", "今日收盤": 10.0} for i in range(20)])
+    page = rh.build("2026-08-16", {"regime": "中性"}, ["x"], "sox",
+                    [{"title": "測試軌", "df": df, "n": 5,
+                      "cols": ["stock_id", "name", "今日收盤"], "signed": []}])
+    assert "需在控制台勾選「輸出 CSV」" in page
+    assert "完整清單見同資料夾 CSV" not in page

@@ -78,10 +78,14 @@ python -m scripts.sync_data load               # 由 CSV 重建 stock.db
 
 ## 程式地圖（關鍵檔）
 
-- `scripts/run_all.py` — 主流程：跑五軌、併欄、寫 `.md`/`.html`/各軌 `.csv`、推播。
+- `scripts/run_all.py` — 主流程：跑五軌、併欄、寫報告、推播。
+  ⚠️**輸出預設只有 `.html`**(2026-08 使用者要求)；`--md`/`--csv` 才另外出 Markdown／各軌完整 CSV。
+  控制台「📊 盤後選股」下方有兩個勾選框對應這兩個旗標。MD 未勾時仍照跑整段 `f.write`(寫進 `io.StringIO` 丟棄)
+  → 保證 MD/HTML 內容永遠同源一致。⚠️CSV 未輸出時，報告註記改成「需勾選輸出 CSV」，不開空頭支票。
 - `src/report_html.py` — HTML 輸出＋`COLUMN_LABELS`（英文欄名→中文顯示名）＋`rename_cn`。
   📌**收盤價上限篩選**（`_pxctrl`/`_PX_JS`）：報告頂端一個輸入框「只看收盤價 ≤ N 元」→純前端 JS 即時跨全部軌隱藏超標列＋顯示「符合 N/M 檔」＋localStorage 記住。
   收盤價欄各軌不一(`_PRICE_COLS`=今日收盤>close>現價>今收 優先序)，`_table` 就地把該欄 `<td>` 標 `data-price` 供 JS 讀。純視圖控制(同 colctrl)、MD 無對應。
+  📌**各軌回測驗證徽章**(`BACKTEST_VERDICTS`/`_verdict_badge`/`verdict_md`)：每軌標題旁標 ✅通過樣本外／❌無edge／⚠️未驗證＋一行詳述(HTML 徽章、MD 一行)，避免看到清單就當成保證會賺。目前＝T16✅唯一通過；T11/T12/長期❌；當沖/隔日沖鎖碼⚠️。改結論就改這個 dict(單一來源)。
   📌**精簡模式**(`_CORE_COLS`/`coreCols()`)：欄位開關面板加「⭐ 精簡（只留常用）」鈕→只留決策核心欄(識別/處置警示/價/定調/停損目標/趨勢位階/量能/法人堆疊/分點/風險)，各軌 45~51 欄→22~25 欄；「全部顯示」可還原。純視圖、localStorage 記住。
   📌**代號→K線圖外連**(`_klink`/`_ID_COLS`/`_KCHART_URL`)：報告裡股票代號做成 Goodinfo K線圖連結(`ShowK_Chart.asp?STOCK_ID=`，新分頁、免分上市櫃故每檔一種網址最穩)。`_table` 代號欄(`stock_id`/`代號`)＋追蹤區/歸因段的代號都套。純外連、MD 無對應。
 - `src/chip_signal.py` — 籌碼訊號：連買賣天數、法人主導度%、訊號標籤、量能倍數、券資比%、

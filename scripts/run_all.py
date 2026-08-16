@@ -13,6 +13,7 @@
     python -m scripts.run_all --skip-longterm # 略過較慢的長期軌
 """
 import argparse
+import io
 import os
 import subprocess
 import sys
@@ -180,8 +181,11 @@ def _landmine_warn(f, df, label="T11 候選"):
         f.write(f"> - {r.stock_id} {r.name}{ind}：{r.風險}　{flags}\n")
 
 
-def _section(f, title, df, cols, n=15, skipped=False, note=None):
+def _section(f, title, df, cols, n=15, skipped=False, note=None, bt=None, csv_on=True):
     f.write(f"\n## {title}\n\n")
+    vline = report_html.verdict_md(bt)          # 回測驗證（各軌是否真的有 edge）
+    if vline:
+        f.write(f"> {vline}\n\n")
     if note:
         for ln in note.split("\n"):
             if ln.strip():
@@ -216,8 +220,9 @@ def _section(f, title, df, cols, n=15, skipped=False, note=None):
                 disp[c] = disp[c].astype(object).where(disp[c].notna(), "—")
         f.write(disp.to_markdown(index=False) + "\n")
         if len(df) > n:
-            f.write(f"\n> 📄 僅顯示前 {n} 名，共 {len(df)} 檔符合；"
-                    "完整清單見同資料夾的同名 CSV 檔（可用 Excel 開）。\n")
+            where = ("完整清單見同資料夾的同名 CSV 檔（可用 Excel 開）。"
+                     if csv_on else "完整清單需在控制台勾選『輸出 CSV』後重跑。")
+            f.write(f"\n> 📄 僅顯示前 {n} 名，共 {len(df)} 檔符合；{where}\n")
 
 
 def _holdings_attribution(pf_view):
@@ -302,6 +307,10 @@ def main():
     ap = argparse.ArgumentParser()
     ap.add_argument("--no-update", action="store_true")
     ap.add_argument("--skip-longterm", action="store_true")
+    ap.add_argument("--md", action="store_true",
+                    help="同時輸出 Markdown 報告（預設只出 HTML）")
+    ap.add_argument("--csv", action="store_true",
+                    help="同時輸出各軌完整清單 CSV（Excel 可開；預設只出 HTML）")
     ap.add_argument("--notify", action="store_true", help="把摘要推播到手機（Telegram/Email，需設 .env）")
     ap.add_argument("--skip-landmine", action="store_true", help="略過波段候選(T11+T16)排雷（省 FinMind 呼叫、加快）")
     ap.add_argument("--days", type=int, default=12)
@@ -695,8 +704,11 @@ def main():
     # 持股籌碼歸因算一次，.md 與 .html 共用（確保兩份內容一致）
     pf_attr = _holdings_attribution(pf_view) if not pf_view.empty else []
 
+    # MD 為選用輸出（預設只出 HTML）：未勾選時寫進記憶體緩衝後丟棄，
+    # 這樣整段 f.write 排版邏輯不必改，也保證 MD/HTML 內容一致（同一份程式產生）。
     path = OUTPUT_DIR / f"{today}_run_all.md"
-    with open(path, "w", encoding="utf-8") as f:
+    _md_sink = open(path, "w", encoding="utf-8") if args.md else io.StringIO()
+    with _md_sink as f:
         f.write(f"# 台股每日整合報告 — {today}\n\n")
         f.write("> ⚠️ 候選觀察名單，非投資建議。先看環境紅綠燈決定要不要出手。\n\n")
         f.write("## 🚦 環境紅綠燈\n\n")
@@ -708,12 +720,12 @@ def main():
                  ["stock_id", "name", "market", "產業", "處置警示", "除權息", "investor", "close", "今日收盤", "今日漲跌%", "定調", "停損價", "停損%", "目標價", "均線排列", "季線年線", "半年線", "20MA乖離%", "52週位置%", "市值億", "外資持股%", "成交額億", "周轉率%", "當沖比率%",
                   "外資今日", "投信今日", "自營今日", "融資今日", "融券今日", "外資", "投信", "自營", "融資增減", "融券增減", "外資連", "投信連", "自營連", "主導度%", "今日量張", "量能倍數", "券資比%", "融資佔量%", "融券佔量%", "借券賣出餘額", "借券增減", "主力淨額", "隔日沖賣壓%", "籌碼訊號",
                   "price_gain_%", "consec_buy_days", "buy_ratio_%", "千張大戶%", "千張週增減", "風險", "紅旗", "score"],
-                 note=note11)
+                 note=note11, bt="T11", csv_on=args.csv)
         _landmine_warn(f, df11)
         _section(f, "🟡 波段｜T16 抗跌強勢", df16,
                  ["stock_id", "name", "market", "產業", "處置警示", "除權息", "今日收盤", "今日漲跌%", "定調", "停損價", "停損%", "目標價", "均線排列", "季線年線", "半年線", "20MA乖離%", "52週位置%", "市值億", "外資持股%", "成交額億", "周轉率%", "當沖比率%",
                   "外資今日", "投信今日", "自營今日", "融資今日", "融券今日", "外資", "投信", "自營", "融資增減", "融券增減", "外資連", "投信連", "自營連", "主導度%", "今日量張", "量能倍數", "券資比%", "融資佔量%", "融券佔量%", "借券賣出餘額", "借券增減", "主力淨額", "隔日沖賣壓%", "籌碼訊號",
-                  "return_%", "vs_market_%", "風險", "紅旗"], note=note16)
+                  "return_%", "vs_market_%", "風險", "紅旗"], note=note16, bt="T16", csv_on=args.csv)
         _landmine_warn(f, df16, "T16 強勢榜")
         if not df11.empty and not df16.empty:
             both = set(df11["stock_id"]) & set(df16["stock_id"])
@@ -724,21 +736,21 @@ def main():
         _section(f, "🚀 成長｜T12 月營收動能（YoY強+近月加速）", df12,
                  ["stock_id", "name", "market", "產業", "處置警示", "除權息", "今日收盤", "今日漲跌%", "定調", "停損價", "停損%", "目標價", "均線排列", "季線年線", "半年線", "20MA乖離%", "52週位置%", "市值億", "外資持股%", "成交額億", "周轉率%", "當沖比率%",
                   "外資今日", "投信今日", "自營今日", "融資今日", "融券今日", "外資", "投信", "自營", "融資增減", "融券增減", "外資連", "投信連", "自營連", "主導度%", "今日量張", "量能倍數", "券資比%", "融資佔量%", "融券佔量%", "借券賣出餘額", "借券增減", "主力淨額", "隔日沖賣壓%", "籌碼訊號", "YoY%",
-                  "累計YoY%", "MoM%", "加速度", "站上20MA", "score"], n=20, note=_flownote.strip())
+                  "累計YoY%", "MoM%", "加速度", "站上20MA", "score"], n=20, note=_flownote.strip(), bt="T12", csv_on=args.csv)
         _section(f, "🟢 長期｜價值+成長+配息", dflt,
                  ["stock_id", "name", "產業", "處置警示", "除權息", "今日收盤", "今日漲跌%", "定調", "停損價", "停損%", "目標價", "均線排列", "季線年線", "半年線", "20MA乖離%", "52週位置%", "市值億", "外資持股%", "成交額億", "周轉率%", "當沖比率%",
                   "外資今日", "投信今日", "自營今日", "融資今日", "融券今日", "外資", "投信", "自營", "融資增減", "融券增減", "外資連", "投信連", "自營連", "主導度%", "今日量張", "量能倍數", "券資比%", "融資佔量%", "融券佔量%", "借券賣出餘額", "借券增減", "主力淨額", "隔日沖賣壓%", "籌碼訊號", "殖利率%", "PER",
                   "ROE估%", "營收YoY%", "連配息年", "score"], skipped=args.skip_longterm,
-                 note=_flownote.strip())
+                 note=_flownote.strip(), bt="長期", csv_on=args.csv)
         _section(f, "🔴 當沖候選｜高波動+高流動（盤中盯，非即時訊號）", dfdt,
                  ["stock_id", "name", "market", "產業", "處置警示", "除權息", "今日收盤", "今日漲跌%", "多空傾向", "與大盤", "停損價", "停損%", "目標價", "均線排列", "季線年線", "半年線", "20MA乖離%", "52週位置%", "市值億", "外資持股%", "成交額億", "周轉率%", "當沖比率%", "當沖比均5日", "當沖比趨勢",
                   "外資今日", "投信今日", "自營今日", "融資今日", "融券今日", "外資", "投信", "自營", "融資增減", "融券增減", "外資連", "投信連", "自營連", "主導度%", "今日量張", "券資比%", "融資佔量%", "融券佔量%", "借券賣出餘額", "借券增減", "主力淨額", "隔日沖賣壓%", "籌碼訊號", "當日振幅%", "均振幅%", "量能倍數"],
-                 note=notedt)
+                 note=notedt, bt="當沖", csv_on=args.csv)
         _section(f, "🎯 隔日沖鎖碼候選｜漲停/大漲 + 主力/隔日沖大戶鎖碼（明日對殺 arena，非即時訊號）", dfsnipe,
                  ["stock_id", "name", "market", "產業", "處置警示", "除權息", "close", "漲跌%", "成交額億", "周轉率%", "今日量張", "量能倍數", "當沖比率%",
                   "均線排列", "季線年線", "半年線", "20MA乖離%", "52週位置%", "外資今日", "投信今日", "券資比%", "借券賣出餘額", "借券增減",
                   "昨主力淨額", "今主力淨額", "隔日沖賣壓%", "預估賣壓張", "預估賣壓佔量%", "全市場黑名單", "本檔黑名單", "籌碼訊號"],
-                 note=notesnipe)
+                 note=notesnipe, bt="隔日沖鎖碼", csv_on=args.csv)
         if not pf_view.empty:
             f.write(f"\n## 📋 我的持股（總損益 {pf_summary['總損益']:+,}"
                     f"｜{pf_summary['總報酬%']:+.2f}%）\n\n")
@@ -791,35 +803,35 @@ def main():
     both = (set(df11["stock_id"]) & set(df16["stock_id"])) if not df11.empty and not df16.empty else set()
     nm = df11.set_index("stock_id")["name"].to_dict() if not df11.empty else {}
     blocks = [
-        {"title": "🟡 波段｜T11 法人吸貨（上市投信/上櫃外資）", "df": df11, "note": note11,
+        {"bt": "T11", "title": "🟡 波段｜T11 法人吸貨（上市投信/上櫃外資）", "df": df11, "note": note11,
          "cols": ["stock_id", "name", "market", "產業", "處置警示", "除權息", "investor", "close", "今日收盤", "今日漲跌%", "定調", "停損價", "停損%", "目標價", "均線排列", "季線年線", "半年線", "20MA乖離%", "52週位置%", "市值億", "外資持股%", "成交額億", "周轉率%", "當沖比率%",
                   "外資今日", "投信今日", "自營今日", "融資今日", "融券今日", "外資", "投信", "自營", "融資增減", "融券增減", "外資連", "投信連", "自營連", "主導度%", "今日量張", "量能倍數", "券資比%", "融資佔量%", "融券佔量%", "借券賣出餘額", "借券增減", "主力淨額", "隔日沖賣壓%", "籌碼訊號",
                   "price_gain_%", "consec_buy_days", "buy_ratio_%", "千張大戶%", "千張週增減", "風險", "紅旗", "score"],
          "signed": ["今日漲跌%", "20MA乖離%", "停損%","price_gain_%", "外資今日", "投信今日", "自營今日", "融資今日", "融券今日", "外資", "投信", "自營", "融資增減", "融券增減", "外資連", "投信連", "自營連", "主導度%", "融資佔量%", "融券佔量%", "借券增減", "主力淨額", "千張週增減", "籌碼訊號"],
          "landmine": True, "landmine_label": "T11 候選",
          "after_intersection": True},
-        {"title": "🟡 波段｜T16 抗跌強勢", "df": df16, "note": note16, "n": 15,
+        {"bt": "T16", "title": "🟡 波段｜T16 抗跌強勢", "df": df16, "note": note16, "n": 15,
          "cols": ["stock_id", "name", "market", "產業", "處置警示", "除權息", "今日收盤", "今日漲跌%", "定調", "停損價", "停損%", "目標價", "均線排列", "季線年線", "半年線", "20MA乖離%", "52週位置%", "市值億", "外資持股%", "成交額億", "周轉率%", "當沖比率%",
                   "外資今日", "投信今日", "自營今日", "融資今日", "融券今日", "外資", "投信", "自營", "融資增減", "融券增減", "外資連", "投信連", "自營連", "主導度%", "今日量張", "量能倍數", "券資比%", "融資佔量%", "融券佔量%", "借券賣出餘額", "借券增減", "主力淨額", "隔日沖賣壓%", "籌碼訊號",
                   "return_%", "vs_market_%", "風險", "紅旗"],
          "signed": ["今日漲跌%", "20MA乖離%", "停損%","return_%", "vs_market_%", "外資今日", "投信今日", "自營今日", "融資今日", "融券今日", "外資", "投信", "自營", "融資增減", "融券增減", "外資連", "投信連", "自營連", "主導度%", "融資佔量%", "融券佔量%", "借券增減", "主力淨額", "籌碼訊號"],
          "landmine": True, "landmine_label": "T16 強勢榜"},
-        {"title": "🚀 成長｜T12 月營收動能（YoY強+近月加速）", "df": df12, "n": 20, "note": _flownote.strip(),
+        {"bt": "T12", "title": "🚀 成長｜T12 月營收動能（YoY強+近月加速）", "df": df12, "n": 20, "note": _flownote.strip(),
          "cols": ["stock_id", "name", "market", "產業", "處置警示", "除權息", "今日收盤", "今日漲跌%", "定調", "停損價", "停損%", "目標價", "均線排列", "季線年線", "半年線", "20MA乖離%", "52週位置%", "市值億", "外資持股%", "成交額億", "周轉率%", "當沖比率%",
                   "外資今日", "投信今日", "自營今日", "融資今日", "融券今日", "外資", "投信", "自營", "融資增減", "融券增減", "外資連", "投信連", "自營連", "主導度%", "今日量張", "量能倍數", "券資比%", "融資佔量%", "融券佔量%", "借券賣出餘額", "借券增減", "主力淨額", "隔日沖賣壓%", "籌碼訊號", "YoY%",
                   "累計YoY%", "MoM%", "加速度", "站上20MA", "score"],
          "signed": ["今日漲跌%", "20MA乖離%", "停損%","外資今日", "投信今日", "自營今日", "融資今日", "融券今日", "外資", "投信", "自營", "融資增減", "融券增減", "外資連", "投信連", "自營連", "主導度%", "融資佔量%", "融券佔量%", "借券增減", "主力淨額", "籌碼訊號",
                     "YoY%", "累計YoY%", "MoM%", "加速度"]},
-        {"title": "🟢 長期｜價值+成長+配息", "df": dflt, "skipped": args.skip_longterm, "note": _flownote.strip(),
+        {"bt": "長期", "title": "🟢 長期｜價值+成長+配息", "df": dflt, "skipped": args.skip_longterm, "note": _flownote.strip(),
          "cols": ["stock_id", "name", "產業", "處置警示", "除權息", "今日收盤", "今日漲跌%", "定調", "停損價", "停損%", "目標價", "均線排列", "季線年線", "半年線", "20MA乖離%", "52週位置%", "市值億", "外資持股%", "成交額億", "周轉率%", "當沖比率%",
                   "外資今日", "投信今日", "自營今日", "融資今日", "融券今日", "外資", "投信", "自營", "融資增減", "融券增減", "外資連", "投信連", "自營連", "主導度%", "今日量張", "量能倍數", "券資比%", "融資佔量%", "融券佔量%", "借券賣出餘額", "借券增減", "主力淨額", "隔日沖賣壓%", "籌碼訊號", "殖利率%", "PER", "ROE估%",
                   "營收YoY%", "連配息年", "score"],
          "signed": ["今日漲跌%", "20MA乖離%", "停損%","外資今日", "投信今日", "自營今日", "融資今日", "融券今日", "外資", "投信", "自營", "融資增減", "融券增減", "外資連", "投信連", "自營連", "主導度%", "融資佔量%", "融券佔量%", "借券增減", "主力淨額", "籌碼訊號", "營收YoY%"]},
-        {"title": "🔴 當沖候選｜高波動+高流動（盤中盯，非即時訊號）", "df": dfdt, "note": notedt, "n": 20,
+        {"bt": "當沖", "title": "🔴 當沖候選｜高波動+高流動（盤中盯，非即時訊號）", "df": dfdt, "note": notedt, "n": 20,
          "cols": ["stock_id", "name", "market", "產業", "處置警示", "除權息", "今日收盤", "今日漲跌%", "多空傾向", "與大盤", "停損價", "停損%", "目標價", "均線排列", "季線年線", "半年線", "20MA乖離%", "52週位置%", "市值億", "外資持股%", "成交額億", "周轉率%", "當沖比率%", "當沖比均5日", "當沖比趨勢",
                   "外資今日", "投信今日", "自營今日", "融資今日", "融券今日", "外資", "投信", "自營", "融資增減", "融券增減", "外資連", "投信連", "自營連", "主導度%", "今日量張", "券資比%", "融資佔量%", "融券佔量%", "借券賣出餘額", "借券增減", "主力淨額", "隔日沖賣壓%", "籌碼訊號", "當日振幅%", "均振幅%", "量能倍數"],
          "signed": ["今日漲跌%", "20MA乖離%", "停損%","外資今日", "投信今日", "自營今日", "融資今日", "融券今日", "外資", "投信", "自營", "融資增減", "融券增減", "外資連", "投信連", "自營連", "主導度%", "融資佔量%", "融券佔量%", "借券增減", "主力淨額", "籌碼訊號"]},
-        {"title": "🎯 隔日沖鎖碼候選｜漲停/大漲 + 主力/隔日沖大戶鎖碼（明日對殺 arena，非即時訊號）",
+        {"bt": "隔日沖鎖碼", "title": "🎯 隔日沖鎖碼候選｜漲停/大漲 + 主力/隔日沖大戶鎖碼（明日對殺 arena，非即時訊號）",
          "df": dfsnipe, "note": notesnipe, "n": 15,
          "cols": ["stock_id", "name", "market", "產業", "處置警示", "除權息", "close", "漲跌%", "成交額億", "周轉率%", "今日量張", "量能倍數", "當沖比率%",
                   "均線排列", "季線年線", "半年線", "20MA乖離%", "52週位置%", "外資今日", "投信今日", "券資比%", "借券賣出餘額", "借券增減",
@@ -837,16 +849,18 @@ def main():
     _slugs = {"T11": "波段T11", "T16": "波段T16", "T12": "成長T12",
               "長期": "長期", "當沖": "當沖", "持股": "我的持股"}
     csv_written = []
-    for b in blocks:
-        d = b.get("df")
-        if d is None or d.empty:
-            continue
-        slug = next((v for k, v in _slugs.items() if k in b["title"]), "清單")
-        name = f"{today}_{slug}.csv"
-        cols = [c for c in b["cols"] if c in d.columns]
-        report_html.rename_cn(d[cols]).to_csv(OUTPUT_DIR / name, index=False, encoding="utf-8-sig")
-        b["csv_name"] = name
-        csv_written.append(name)
+    if args.csv:
+        for b in blocks:
+            d = b.get("df")
+            if d is None or d.empty:
+                continue
+            slug = next((v for k, v in _slugs.items() if k in b["title"]), "清單")
+            name = f"{today}_{slug}.csv"
+            cols = [c for c in b["cols"] if c in d.columns]
+            report_html.rename_cn(d[cols]).to_csv(OUTPUT_DIR / name, index=False,
+                                                  encoding="utf-8-sig")
+            b["csv_name"] = name          # 有寫檔才設，HTML 註記才不會開空頭支票
+            csv_written.append(name)
 
     inter = [f"{s} {nm.get(s,'')}" for s in both]
     html = report_html.build(today, reg, gm.summary_lines(glob), gm.sox_signal(glob),
@@ -855,10 +869,13 @@ def main():
     html_path = OUTPUT_DIR / f"{today}_run_all.html"
     html_path.write_text(html, encoding="utf-8")
 
-    print(f"\n✅ 整合報告 → {path}")
-    print(f"   HTML（瀏覽器開、表格對齊）→ {html_path}")
+    print(f"\n✅ 整合報告（HTML，瀏覽器開）→ {html_path}")
+    if args.md:
+        print(f"   Markdown → {path}")
     if csv_written:
         print(f"   完整清單 CSV（Excel 可開）→ {OUTPUT_DIR}/ 內：{'、'.join(csv_written)}")
+    if not args.md and not args.csv:
+        print("   （MD／CSV 未輸出＝預設；要的話在控制台勾選『輸出 MD』『輸出 CSV』）")
     print(f"   波段T11 {len(df11)} / T16 {len(df16)} ｜ T12 {0 if df12 is None else len(df12)}"
           f" ｜ 當沖 {len(dfdt)}"
           + (f" ｜ 長期 {len(dflt)}" if dflt is not None else " ｜ 長期(略過)"))

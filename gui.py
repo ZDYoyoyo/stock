@@ -89,7 +89,8 @@ class Console:
     def _buttons(self, p):
         self._section(p, "每日")
         self._btn(p, "🌅 盤前快報(環境+費半)", lambda: self.run(["scripts.run_morning"], "盤前快報"), "#fff7e6")
-        self._btn(p, "📊 盤後選股+推播", lambda: self.run(["scripts.run_all", "--notify"], "盤後選股"), "#e8f0fe")
+        self._btn(p, "📊 盤後選股+推播", self.postmarket, "#e8f0fe")
+        self._out_opts(p)          # ↑ 這顆的輸出格式選項（預設只出 HTML）
         self._btn(p, "🛡️ 盤中持股守衛", lambda: self.run(["scripts.monitor_portfolio"], "盤中守衛"), "#fef3e8")
 
         self._section(p, "資料 / 每週")
@@ -133,6 +134,28 @@ class Console:
         self._btn(p, "📂 開報告資料夾", self.open_reports)
         self._btn(p, "📈 開最新HTML報告", self.open_latest_html)
         self._btn(p, "⏹ 停止執行中工作", self.stop, "#fde8e8")
+
+    def _out_opts(self, p):
+        """盤後選股的輸出格式：預設只出 HTML（看報告用它就夠）；要 Excel/純文字才勾。"""
+        f = tk.Frame(p)
+        f.pack(anchor="w", padx=14, pady=(0, 4))
+        self.want_csv = tk.BooleanVar(value=False)
+        self.want_md = tk.BooleanVar(value=False)
+        tk.Label(f, text="↳ 額外輸出：", font=("Microsoft JhengHei", 8), fg="#666").pack(side="left")
+        tk.Checkbutton(f, text="CSV(Excel完整清單)", variable=self.want_csv,
+                       font=("Microsoft JhengHei", 8), fg="#444").pack(side="left")
+        tk.Checkbutton(f, text="MD(純文字)", variable=self.want_md,
+                       font=("Microsoft JhengHei", 8), fg="#444").pack(side="left")
+
+    def postmarket(self):
+        """盤後選股：依勾選決定要不要另外輸出 CSV／MD（不勾＝只出 HTML）。"""
+        args = ["scripts.run_all", "--notify"]
+        if self.want_csv.get():
+            args.append("--csv")
+        if self.want_md.get():
+            args.append("--md")
+        extra = "＋".join([x for x, on in (("CSV", self.want_csv.get()), ("MD", self.want_md.get())) if on])
+        self.run(args, "盤後選股" + (f"（＋{extra}）" if extra else "（只出HTML）"))
 
     def _input_area(self, p):
         f = tk.Frame(p)

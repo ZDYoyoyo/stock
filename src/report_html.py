@@ -90,6 +90,52 @@ def fmt_group_text(vals) -> str:
     return "／".join(_fmt_signed(v) for v in vals)
 
 
+# 各軌的「回測驗證結果」——直接標在標題旁，避免看到清單就當成保證會賺。
+# 來源＝本專案實測（組合回測／walk-forward 樣本外），數字見 reports/*.md。
+# (等級, 短標, 詳述)；等級 ok=通過樣本外／no=無 edge／warn=未驗證或 edge 薄。
+BACKTEST_VERDICTS = {
+    "T11": ("no", "回測無 edge",
+            "組合回測 CAGR −16%／最大回撤 −63%，遠輸買入持有 → **只當選股情報，別當進出場策略**。"),
+    "T16": ("ok", "唯一通過嚴格樣本外",
+            "walk-forward OOS CAGR +37.9%／夏普 1.11，小勝同期買入持有(+26.5%／1.07)。"
+            "⚠️但回撤更深(−44%)、逐折分散(F2 −22%)、選中參數不穩 → **有真 edge 但脆弱**，"
+            "須順 regime＋分散到 ~10 檔；停損反而傷動能。"),
+    "T12": ("no", "嚴格樣本外失效",
+            "walk-forward OOS 僅 CAGR +7.8%／夏普 0.41，**大輸同期買入持有(+26.5%／1.07)**；"
+            "「看整段挑最好」+34.5% 是資料窺探灌水約 4 倍 → **降級為選股情報**。"),
+    "長期": ("no", "此期間無 edge",
+             "月頻價值篩選 CAGR −0.5%／夏普 0.08，慘輸買入持有(+14.9%)。"
+             "主因 2022~2026 為成長股主導、價值落後 → **不代表價值投資無效**，是此面板×此期間沒 edge。"),
+    "當沖": ("warn", "未回測（本質是舞台篩選）",
+             "篩的是「流動性＋波動度」的對殺舞台，不是進出場訊號 → 不適用組合回測；"
+             "實際進出仍看盤中量價。"),
+    "隔日沖鎖碼": ("warn", "已回測·edge 薄",
+                "356樣本：鎖碼股隔日多**開高走低**(盤中 −0.8%)，但 EOD 欄位無法穩定預測方向"
+                "（🎯本身無增量預測力）；只有『預估賣壓佔量%』最高組 −1.64%(跌比56.8%) 略有鑑別 → "
+                "**情境舞台、非提款機，別抱過夜**。"),
+}
+_V_ICON = {"ok": "✅", "no": "❌", "warn": "⚠️"}
+
+
+def verdict_md(key) -> str:
+    """MD 用：一行『回測驗證』說明。無此軌回空字串。"""
+    v = BACKTEST_VERDICTS.get(key)
+    if not v:
+        return ""
+    lvl, short, detail = v
+    return f"🔬 **回測驗證：{_V_ICON[lvl]} {short}** — {detail}"
+
+
+def _verdict_badge(key) -> str:
+    """HTML 用：標題旁的小徽章＋下方一行詳述。"""
+    v = BACKTEST_VERDICTS.get(key)
+    if not v:
+        return ""
+    lvl, short, detail = v
+    return (f'<span class="bt bt-{lvl}">{_V_ICON[lvl]} {short}</span>'
+            f'<p class="btnote">🔬 回測驗證：{detail}</p>')
+
+
 GLOSSARY = ("📖 術語小抄：本益比(PER)＝股價÷每股盈餘，數字越低越便宜；"
             "年增(YoY)＝與去年同期比；月增(MoM)＝與上月比；"
             "EPS＝每股盈餘(公司幫每股賺多少)；ROE＝股東權益報酬率(獲利能力，越高越好)；"
@@ -178,6 +224,13 @@ tbody tr:hover td:first-child { background: #eef3fb; }
 /* 代號→K線圖外連：看起來像代號、虛線底線暗示可點 */
 a.klink { color:inherit; text-decoration:none; border-bottom:1px dotted #8896a8; cursor:pointer; }
 a.klink:hover { color:#1e63d0; border-bottom-color:#1e63d0; }
+/* 回測驗證徽章：貼在各軌標題旁，一眼看出這軌到底驗證過沒有 */
+.bt { display:inline-block; font-size:11px; font-weight:600; padding:2px 8px;
+  border-radius:10px; margin-left:8px; vertical-align:middle; white-space:nowrap; }
+.bt-ok { background:#e8f7ee; color:#0f6b3c; border:1px solid #9dd9b8; }
+.bt-no { background:#fdecea; color:#a02020; border:1px solid #f0b0aa; }
+.bt-warn { background:#fff4e5; color:#8a5200; border:1px solid #f3cf95; }
+.btnote { color:#666; font-size:11.5px; margin:2px 0 8px; line-height:1.6; }
 .star { background:#fffbe6; border:1px solid #ffe28a; border-radius:8px; padding:10px 14px; }
 .disclaimer { color:#999; font-size:12px; margin-top:20px; }
 @media (prefers-color-scheme: dark) {
@@ -191,6 +244,10 @@ a.klink:hover { color:#1e63d0; border-bottom-color:#1e63d0; }
   .colctrl { background:#20242b; border-color:#333a44; }
   .colctrl summary { color:#cdd6e2; }
   .colctrl button { background:#2a2f37; color:#e6e6e6; border-color:#444; }
+  .bt-ok { background:#12331f; color:#7fd6a2; border-color:#2c6b45; }
+  .bt-no { background:#3a1a1a; color:#f0938c; border-color:#7a3a34; }
+  .bt-warn { background:#3a2c14; color:#f0c078; border-color:#7a5a24; }
+  .btnote { color:#9aa0a6; }
   .pxctrl { background:#20242b; border-color:#333a44; color:#cdd6e2; }
   .pxctrl input, .pxctrl button { background:#2a2f37; color:#e6e6e6; border-color:#444; }
   a.klink:hover { color:#6db3ff; border-bottom-color:#6db3ff; }
@@ -441,7 +498,7 @@ def build(today, reg, glob_lines, sox, blocks, intersection=None,
 
     body = ""
     for b in blocks:
-        body += f"<h2>{b['title']}</h2>"
+        body += f"<h2>{b['title']}{_verdict_badge(b.get('bt'))}</h2>"
         if b.get("note"):
             note_html = "<br>".join(ln for ln in b["note"].split("\n") if ln.strip())
             body += f'<p class="note">{note_html}</p>'
@@ -456,8 +513,8 @@ def build(today, reg, glob_lines, sox, blocks, intersection=None,
             body += _table(shown, b["cols"], b.get("signed", []))
             if n and len(df) > n:
                 csv = b.get("csv_name")
-                where = (f'完整清單見同資料夾 <code>{csv}</code>（可用 Excel 開）'
-                         if csv else "完整清單見同資料夾 CSV")
+                where = (f'完整清單見同資料夾 <code>{csv}</code>（可用 Excel 開）' if csv
+                         else "完整清單需在控制台勾選「輸出 CSV」後重跑")
                 body += f'<p class="note">（僅顯示前 {n} 名，共 {len(df)} 檔符合；{where}）</p>'
         # 排雷提醒 callout（對齊 .md）：df 內有高風險則列紅旗
         if b.get("landmine"):
