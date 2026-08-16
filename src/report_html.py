@@ -349,6 +349,22 @@ def _regime_class(reg: dict) -> str:
     return "reg-neutral"
 
 
+# 「精簡模式」保留的核心欄：做一次買賣決策真正會看的。其餘一鍵收起（資料仍在，隨時可展開）。
+# 每軌 45~51 欄對非技術使用者太多 → 給一個乾淨的預設視圖。
+_CORE_COLS = {
+    "market", "產業", "處置警示",                       # 識別＋硬風控
+    "今日收盤", "今日漲跌%", "close", "漲跌%",            # 價
+    "定調", "多空傾向", "與大盤",                        # 一句話方向
+    "停損價", "目標價",                                 # 風控價位（停損%屬細節）
+    "均線排列", "季線年線", "20MA乖離%", "52週位置%",      # 趨勢/位階
+    "成交額億", "量能倍數", "當沖比率%", "當日振幅%",       # 量能/熱度
+    "外資", "投信", "主導度%", "籌碼訊號",                # 籌碼（外資/投信為堆疊格）
+    "主力淨額", "今主力淨額", "隔日沖賣壓%",               # 分點
+    "全市場黑名單", "預估賣壓佔量%",                      # 第6軌核心
+    "風險",                                            # 排雷
+}
+
+
 def _colctrl(blocks) -> str:
     """欄位顯示開關面板：列出全報告會出現的欄，勾掉即隱藏（localStorage 記住跨日）。
 
@@ -364,13 +380,15 @@ def _colctrl(blocks) -> str:
                 continue
             seen.add(c)
             txt = (MERGE_GROUPS[c][0] + "今/昨/10/20") if c in MERGE_GROUPS else label(c)
-            items.append(f'<label><input type="checkbox" checked data-col="{c}" '
+            core = ' data-core="1"' if c in _CORE_COLS else ""
+            items.append(f'<label><input type="checkbox" checked data-col="{c}"{core} '
                          f'onchange="tc(this)">{txt}</label>')
     if not items:
         return ""
     return ('<details class="colctrl"><summary>🔧 欄位顯示（勾掉不想看的欄，全報告即時套用、下次開報告會記住）</summary>'
             f'<div class="cols">{"".join(items)}</div>'
-            '<div class="btns"><button onclick="allCols(true)">全部顯示</button>'
+            '<div class="btns"><button onclick="coreCols()">⭐ 精簡（只留常用）</button>'
+            '<button onclick="allCols(true)">全部顯示</button>'
             '<button onclick="allCols(false)">全部隱藏</button></div></details>')
 
 
@@ -381,6 +399,7 @@ function _apply(name,show){document.querySelectorAll('[data-col="'+name+'"]').fo
 function _save(){var h=[];document.querySelectorAll('.colctrl input[type=checkbox]').forEach(function(cb){if(!cb.checked)h.push(cb.dataset.col);});try{localStorage.setItem(LSK,JSON.stringify(h));}catch(e){}}
 function tc(cb){_apply(cb.dataset.col,cb.checked);_save();}
 function allCols(show){document.querySelectorAll('.colctrl input[type=checkbox]').forEach(function(cb){cb.checked=show;_apply(cb.dataset.col,show);});_save();}
+function coreCols(){document.querySelectorAll('.colctrl input[type=checkbox]').forEach(function(cb){var k=cb.dataset.core==='1';cb.checked=k;_apply(cb.dataset.col,k);});_save();}
 (function(){var h=[];try{h=JSON.parse(localStorage.getItem(LSK)||'[]');}catch(e){}
  document.querySelectorAll('.colctrl input[type=checkbox]').forEach(function(cb){if(h.indexOf(cb.dataset.col)>=0){cb.checked=false;_apply(cb.dataset.col,false);}});})();
 </script>"""
