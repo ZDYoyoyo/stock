@@ -188,6 +188,8 @@ python -m scripts.sync_data load               # 由 CSV 重建 stock.db
 - `scripts/run_oos_validation.py` — 樣本外分期＋參數敏感度。
 - `scripts/run_signal_compare.py` — 離線比 T11／T16／買入持有／各+regime（`compute_t16_entries` 抗跌強勢）。
 - `scripts/run_t16_tune.py` — T16 調校：持股數×停損×regime 降回撤。
+- `src/walkforward.py` — walk-forward 共用純計算(`curve_metrics` 權益曲線指標／`bh_curve` 買入持有基準／
+  `make_folds` expanding-train 折切25/50/75%)。T16/T12 OOS 共用，避免兩份漂移。⚠️抽出時已驗證 T16 報告逐字不變。
 - `scripts/run_t16_oos.py` — T16 **嚴格樣本外**（walk-forward）：3 折 expanding-train，train 挑夏普最高
   參數→test 驗證，三段 test 資本串接成連續 OOS 曲線；對照「看整段挑最好」過擬合上界。離線、免額度。
 - `scripts/backfill_history.py` — 回補離線面板→`data/history/backtest_panel.csv.gz`。
@@ -198,7 +200,7 @@ python -m scripts.sync_data load               # 由 CSV 重建 stock.db
   月頻(每月首交易日)抓 TWSE BWIBBU_d 殖利率/PER/PBR，僅上市；`compute_longterm_entries` 用之。
 - `scripts/run_longterm_backtest.py` — 長期價值軌回測（月頻價值篩選 vs 買入持有/+regime）。
 - `tests/` — 97 個單元測試（signals／portfolio／T12前視／長期價值篩選／db 快取／定調7面向／借券enrich＋歷史增減／分點主力淨額＋隔日沖賣壓／分點本機快取／當沖比熱度趨勢／隔日沖鎖碼軌／個股深掘時間序列＋隔日沖常客／SVG迷你圖／T16 OOS純函式／千張大戶分級聚合）；`python -m pytest tests/ -q`。
-- 報告：`reports/signal_compare.md`、`reports/t16_tune.md`、`reports/portfolio_backtest.md`、`reports/oos_validation.md`、`reports/longterm_backtest.md`、`reports/t16_oos.md`、`reports/daytrade_signal_backtest.md`、`reports/snipe_signal_backtest.md`。
+- 報告：`reports/signal_compare.md`、`reports/t16_tune.md`、`reports/portfolio_backtest.md`、`reports/oos_validation.md`、`reports/longterm_backtest.md`、`reports/t16_oos.md`、`reports/t12_oos.md`、`reports/daytrade_signal_backtest.md`、`reports/snipe_signal_backtest.md`。
 
 **指令**：
 ```bash
@@ -211,6 +213,7 @@ python -m scripts.backfill_revenue --update           # 增量：只補面板新
 python -m scripts.backfill_valuation                  # 回補月頻估值面板（殖利率/PER/PBR，供長期價值軌）
 python -m scripts.run_longterm_backtest               # 長期價值軌回測（vs 買入持有/+regime）
 python -m scripts.run_t16_oos                          # T16 嚴格樣本外 walk-forward（train挑參數→test驗證）
+python -m scripts.run_t12_oos                          # T12 嚴格樣本外 walk-forward（同框架，共用 src/walkforward）
 ```
 
 **關鍵結論（離線 200 檔面板實測，2026-07）**：
@@ -223,7 +226,11 @@ python -m scripts.run_t16_oos                          # T16 嚴格樣本外 wal
   選參數不穩（各折挑中組態跳動）。結論：**T16 有真 edge 但非穩定印鈔**，實盤須順 regime、
   分散、控回撤、抓對市況；別把 in-sample +32% 當保證。
 - **regime（市場廣度紅綠燈）普遍有用**：買入持有+regime 回撤 −33%→−18.6%、夏普升。
-- **T12 月營收動能＝有 edge 但不如 T16**（199 檔月營收面板實測）：持5檔/20日 CAGR **+21.5%**、
+- **T12 月營收動能＝in-sample 看似有 edge，但🔬嚴格樣本外(walk-forward)失效**（`run_t12_oos`，2026-08）：
+  連續 OOS **CAGR 僅 +7.8%／夏普 0.41／回撤 −49%**，**大輸同期買入持有(+26.5%／1.07)**；
+  「看整段挑最好」+34.5%／1.25 是上界 → **資料窺探灌水約 4 倍**。逐折高度分散(F1 +11%、**F2 −36%**、F3 +76%)、
+  參數跳動(regime 有無、YoY門檻都換)。結論：**T12 別當進出場策略**，跟 T11/長期價值一樣降級為選股情報。
+  以下為原 in-sample 數字（保留對照，已知高估）：（199 檔月營收面板實測）：持5檔/20日 CAGR **+21.5%**、
   夏普 **0.82**、回撤 −42.7%。贏買入持有(+14.9%/0.71)→ 營收成長是有效因子；但輸 T16(+31.4%/0.90)
   → 價的動能比基本面反應更快。用公布日(pub_date≤交易日)對齊 → 無前視偏誤。
   ✅ **T12 甜蜜點＝持8檔**：5→8 檔分散把回撤 **−42.7%→−38.2%**、夏普 **0.82→0.91**、CAGR 不減
@@ -234,7 +241,7 @@ python -m scripts.run_t16_oos                          # T16 嚴格樣本外 wal
   對價值不利。**不代表價值投資無效**，是「此流動性面板×此成長期間」價值沒 edge。
   用核心價值因子(殖利率/PER/PBR/ROE估)；配息年數/EPS 未納入(見報告)。
 - **實用結論**：波段用 **T16+分散+順 regime**（攻）；長期用 **買入持有+regime**（守，勝過價值選股）；
-  T12 可當「有基本面撐腰的動能」次選（**持8檔分散**、弱於 T16、別加 regime）；T11、長期價值選股 丟。
+  **T12 樣本外失效→與 T11、長期價值一併降級為『選股情報』，別當策略**。
 
 **已知限制／可延伸**：
 - 離線面板 ~200 檔、仍有倖存者偏誤（動能策略尤其樂觀，實際 edge 會小些）。
@@ -273,7 +280,7 @@ python -m scripts.run_t16_oos                          # T16 嚴格樣本外 wal
    查昨收→對非交易日標籤(週末跑/回填)健壯。
 2. **T16 驗證贏法變「今日建議籃子」**：回測結論 T16+分散~10檔+順regime 才是真 edge；把它落成
    「今天該買這籃/環境紅燈空手」的具體行動（橋接回測→實作）。
-3. **T12 嚴格樣本外**（walk-forward，比照 `run_t16_oos`）：唯一剩的回測嚴謹缺口、框架現成、低成本。
+3. ✅**T12 嚴格樣本外已完成**（2026-08，`run_t12_oos`）：結論＝**OOS 失效**(+7.8%/0.41 vs 買入持有 +26.5%/1.07)，T12 降級為情報。回測嚴謹缺口已補完。
 - 更大工/邊際遞減：盤中即時(Shioaji VWAP/五檔/內外盤，另一個專案)、價值軌納配息年數/EPS、上櫃估值。
 - **使用者當前態度＝先每天跑 `1_盤後選股.bat` 觀察一兩週，讓 picks_tracker 累積真實戰績再決定。**
 
@@ -363,7 +370,7 @@ FinMind Sponsor 已辦，規劃見 `docs/Sponsor升級規劃.md`。本 session �
   隔日沖賣壓%/當沖比%/借券餘額/千張大戶% 六張走勢圖，自足無外部庫、tooltip 看數值。**[7] 全數完成、roadmap 清空**。
 - **③ 回測驗證缺口**：✅長期價值軌已回測（無 edge）；✅T16 嚴格樣本外（walk-forward，
   run_t16_oos：OOS +37.9%/夏普1.11 小勝買入持有但回撤更深、逐折分散、edge 存活但脆弱）；
-  待做：價值軌納配息年數/EPS 因子、上櫃估值(BWIBBU_d 僅上市)、T12 樣本外。
+  ✅T12 樣本外(已完成，OOS 失效)；待做：價值軌納配息年數/EPS 因子、上櫃估值(BWIBBU_d 僅上市)。
 
 ## 提醒使用者的常見事項
 

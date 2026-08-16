@@ -20,7 +20,6 @@
 """
 import argparse
 import itertools
-import math
 import sys
 from datetime import date
 from pathlib import Path
@@ -31,9 +30,9 @@ sys.path.insert(0, str(ROOT))
 import pandas as pd
 
 from src.portfolio_backtest import (
-    TRADING_DAYS, compute_regime_ok, compute_t16_entries,
-    load_panel_csv, run_portfolio, slice_panel,
+    compute_regime_ok, compute_t16_entries, load_panel_csv, run_portfolio, slice_panel,
 )
+from src.walkforward import bh_curve as _bh_curve, curve_metrics as _curve_metrics, make_folds
 
 PANEL = ROOT / "data" / "history" / "backtest_panel.csv.gz"
 
@@ -53,20 +52,6 @@ def _cfg_label(cfg) -> str:
 def _grid():
     for mp, st, rg, lb in itertools.product(GRID_MAXPOS, GRID_STOP, GRID_REGIME, GRID_LOOKBACK):
         yield {"maxpos": mp, "stop": st, "regime": rg, "lookback": lb}
-
-
-def _curve_metrics(equity: pd.Series) -> dict:
-    """由連續權益曲線算 CAGR/最大回撤/夏普/年化波動（串接 OOS 曲線用）。"""
-    if equity is None or len(equity) < 2:
-        return {"CAGR_%": 0.0, "MaxDD_%": 0.0, "Sharpe": 0.0, "Vol_%": 0.0}
-    rets = equity.pct_change().dropna()
-    years = len(equity) / TRADING_DAYS
-    cagr = (equity.iloc[-1] / equity.iloc[0]) ** (1 / years) - 1 if years > 0 else 0
-    vol = rets.std() * math.sqrt(TRADING_DAYS)
-    sharpe = (rets.mean() / rets.std() * math.sqrt(TRADING_DAYS)) if rets.std() > 0 else 0
-    dd = (equity / equity.cummax() - 1).min()
-    return {"CAGR_%": round(cagr * 100, 2), "MaxDD_%": round(dd * 100, 2),
-            "Sharpe": round(sharpe, 2), "Vol_%": round(vol * 100, 2)}
 
 
 class _Cache:
@@ -95,23 +80,6 @@ class _Cache:
             init_capital=init_cap)
 
 
-def _bh_curve(panel: dict, lo: str, hi: str, init_cap=1_000_000) -> pd.Series:
-    """等權買入持有權益曲線（區間 [lo,hi]），供 OOS 基準對照。"""
-    sub = slice_panel(panel, lo=lo, hi=hi)
-    norm = {}
-    for sid, df in sub.items():
-        df = df.sort_values("date")
-        c0 = df["close"].iloc[0] if len(df) else 0
-        if c0 > 0:
-            norm[sid] = dict(zip(df["date"], df["close"] / c0))
-    all_dates = sorted({d for m in norm.values() for d in m})
-    vals = []
-    for d in all_dates:
-        xs = [m[d] for m in norm.values() if d in m]
-        vals.append(sum(xs) / len(xs) if xs else 1.0)
-    return pd.Series([v * init_cap for v in vals], index=all_dates)
-
-
 def _pick_best(cache, train_panel):
     """在 train 面板對整個網格挑『夏普最高』(同分取 CAGR 高)。回 (cfg, train_metrics)。"""
     best, best_m = None, None
@@ -136,13 +104,7 @@ def main():
     print(f"  {len(panel)} 檔、{n} 交易日（{dates[0]} ~ {dates[-1]}）")
     cache = _Cache(panel, args.hold)
 
-    # 切點（25/50/75%）
-    i1, i2, i3 = n // 4, n // 2, 3 * n // 4
-    folds = [
-        ("F1", dates[0], dates[i1], dates[i1 + 1], dates[i2]),
-        ("F2", dates[0], dates[i2], dates[i2 + 1], dates[i3]),
-        ("F3", dates[0], dates[i3], dates[i3 + 1], dates[-1]),
-    ]
+    folds = make_folds(dates)          # 切點 25/50/75%（共用 walkforward）
 
     # --- walk-forward：每折 train 選參數 → test 驗證；資本串接成連續 OOS 曲線 ---
     fold_rows, oos_segments = [], []
