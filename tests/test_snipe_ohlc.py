@@ -106,8 +106,58 @@ def test_snipe_ohlc_explain_columns():
     assert "實際賣壓%" in r and "今主力淨額" in r
 
 
+def test_snipe_ohlc_carries_blacklists_from_pick_day():
+    """昨天列出的兩份黑名單要跟著 pick 存下、追蹤時原樣顯示（不事後重算，快取會被 prune）。"""
+    from src import db, picks_tracker as pt
+    import pandas as pd
+    price = [{"date": "D1", "stock_id": "9999", "open": 95, "high": 100, "low": 94,
+              "close": 100, "volume": 100},
+             {"date": "D2", "stock_id": "9999", "open": 108, "high": 110, "low": 101,
+              "close": 102, "volume": 500},
+             {"date": "D1", "stock_id": "8888", "open": 48, "high": 50, "low": 47,
+              "close": 50, "volume": 100},
+             {"date": "D2", "stock_id": "8888", "open": 49, "high": 55, "low": 48,
+              "close": 54, "volume": 300}]
+    with db.connect() as conn:
+        db.upsert(conn, "price", price)
+    pt.save("D1", {"隔日沖鎖碼": pd.DataFrame([
+        {"stock_id": "9999", "name": "妖股", "今主力淨額": 1234,
+         "全市場黑名單": "凱基台北72%、美林68% +3", "本檔黑名單": "元大、群益 +1"},
+        {"stock_id": "8888", "name": "強股", "今主力淨額": 500},   # 無黑名單→留白
+    ])}, n=15)
+
+    r = {x["stock_id"]: x for x in pt.snipe_ohlc("D3")["rows"]}
+    assert r["9999"]["全市場黑名單"] == "凱基台北72%、美林68% +3"
+    assert r["9999"]["本檔黑名單"] == "元大、群益 +1"
+    assert r["8888"]["全市場黑名單"] == "" and r["8888"]["本檔黑名單"] == ""
+
+
+def test_snipe_ohlc_html_shows_blacklist_columns():
+    from src import report_html as rh
+    so = {"date": "D1", "trade_date": "D2", "rows": [
+        {"rank": 1, "stock_id": "9999", "name": "妖股", "鎖碼淨額": 1234,
+         "全市場黑名單": "凱基台北72%", "本檔黑名單": "元大", "預估賣壓%": 6.5,
+         "實際賣壓%": 8.1, "今主力淨額": -300, "昨收": 100.0, "今開": 108.0,
+         "今高": 110.0, "今低": 101.0, "今收": 102.0, "漲跌%": 2.0, "跳空%": 8.0,
+         "盤中%": -5.56, "高檔回落%": -7.27, "振幅%": 9.0, "量能倍數": 5.0, "當沖比%": 50.0}]}
+    h = rh._snipe_ohlc_html(so, None)
+    assert "全市場黑名單" in h and "本檔黑名單" in h
+    assert "凱基台北72%" in h and "元大" in h
+
+
+def test_snipe_ohlc_html_survives_rows_without_blacklists():
+    """舊 picks.csv 產生的 rows 沒有黑名單鍵 → 該欄自動略過，不炸。"""
+    from src import report_html as rh
+    so = {"date": "D1", "trade_date": "D2", "rows": [
+        {"rank": 1, "stock_id": "9999", "name": "妖股", "鎖碼淨額": 1234,
+         "昨收": 100.0, "今開": 108.0, "今高": 110.0, "今低": 101.0, "今收": 102.0,
+         "漲跌%": 2.0, "跳空%": 8.0, "盤中%": -5.56}]}
+    h = rh._snipe_ohlc_html(so, None)
+    assert "妖股" in h
+
+
 def test_picks_csv_backward_compatible(tmp_path, monkeypatch):
-    """舊 picks.csv 沒有『預估賣壓%』欄也要能讀（向後相容）。"""
+    """舊 picks.csv 沒有『預估賣壓%』『黑名單』欄也要能讀（向後相容）。"""
     from src import picks_tracker as pt
     import pandas as pd
     old = tmp_path / "old_picks.csv"
@@ -116,3 +166,5 @@ def test_picks_csv_backward_compatible(tmp_path, monkeypatch):
     monkeypatch.setattr(pt, "PICKS_CSV", old)
     df = pt._load()
     assert "預估賣壓%" in df.columns and pd.isna(df.iloc[0]["預估賣壓%"])
+    for c in ("全市場黑名單", "本檔黑名單"):
+        assert c in df.columns and pd.isna(df.iloc[0][c])

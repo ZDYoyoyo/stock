@@ -12,14 +12,17 @@ from .config import DATA_DIR
 from .screeners import chip_diagnosis as cd
 
 PICKS_CSV = DATA_DIR / "history" / "picks.csv"
-_COLS = ["date", "track", "rank", "stock_id", "name", "主力淨額", "預估賣壓%"]
+_COLS = ["date", "track", "rank", "stock_id", "name", "主力淨額", "預估賣壓%",
+         "全市場黑名單", "本檔黑名單"]
+# pick 當下才算得出黑名單（要當日分點 + 當時的 broker_profile）→ 存下來，隔日追蹤直接顯示
+_EXTRA = ("主力淨額", "預估賣壓%", "全市場黑名單", "本檔黑名單")
 
 
 def _load() -> pd.DataFrame:
     if not PICKS_CSV.exists():
         return pd.DataFrame(columns=_COLS)
     df = pd.read_csv(PICKS_CSV, dtype={"stock_id": str})
-    for c in ("主力淨額", "預估賣壓%"):        # 舊檔無此欄→補空，向後相容
+    for c in _EXTRA:                          # 舊檔無此欄→補空，向後相容
         if c not in df.columns:
             df[c] = pd.NA
     return df
@@ -30,7 +33,9 @@ def save(today: str, tracks: dict, n: int = 15) -> pd.DataFrame:
 
     tracks: {軌名: DataFrame(需含 stock_id, name)}。若 df 有『今主力淨額』欄
     （隔日沖鎖碼軌）一併存下 → 追蹤時可直接顯示『當時鎖碼買了多少』，免重算；
-    『預估賣壓佔量%』同理存下 → 隔日可比對「預測 vs 實際」賣壓。
+    『預估賣壓佔量%』同理存下 → 隔日可比對「預測 vs 實際」賣壓；
+    『全市場黑名單/本檔黑名單』也存下 → 追蹤時看得到當時是誰在鎖碼（隔日重算會失真：
+    分點快取會被 prune、broker_profile 也一直在更新，不是 pick 當下那份）。
     """
     df = _load()
     df = df[df["date"] != today]  # 同日全清後重寫
@@ -44,7 +49,9 @@ def save(today: str, tracks: dict, n: int = 15) -> pd.DataFrame:
             rows.append({"date": today, "track": track, "rank": rank,
                          "stock_id": str(r["stock_id"]), "name": r.get("name", ""),
                          "主力淨額": int(mf) if pd.notna(mf) else pd.NA,
-                         "預估賣壓%": ep if pd.notna(ep) else pd.NA})
+                         "預估賣壓%": ep if pd.notna(ep) else pd.NA,
+                         "全市場黑名單": r.get("全市場黑名單", pd.NA),
+                         "本檔黑名單": r.get("本檔黑名單", pd.NA)})
     if rows:
         df = pd.concat([df, pd.DataFrame(rows)], ignore_index=True)
     df = df.sort_values(["date", "track", "rank"]).reset_index(drop=True)
@@ -91,10 +98,12 @@ def snipe_ohlc(today: str, track: str = "隔日沖鎖碼") -> dict:
     """昨日『隔日沖鎖碼候選』→ 今日開高低收走勢（具體看『開高走低』有沒有發生）。
 
     回傳 {"date": 昨日, "trade_date": 今交易日,
-          "rows": [{rank, stock_id, name, 鎖碼淨額, 預估賣壓%, 實際賣壓%, 今主力淨額,
+          "rows": [{rank, stock_id, name, 鎖碼淨額, 全市場黑名單, 本檔黑名單,
+                    預估賣壓%, 實際賣壓%, 今主力淨額,
                     昨收, 今開, 今高, 今低, 今收, 漲跌%, 跳空%, 盤中%, 高檔回落%, 振幅%,
                     量能倍數, 當沖比%}]}。
       鎖碼淨額＝pick 當日主力淨額(前15買+前15賣)＝『當時鎖碼買了多少』(存檔時記下、免重算)。
+      全市場/本檔黑名單＝昨天列出的隔日沖分點(存檔時記下)→ 可直接對照「這些人今天倒了沒」。
       跳空%＝(今開−昨收)/昨收（隔夜高開幅度）；盤中%＝(今收−今開)/今開（開高走低幅度，負=走低）。
       **解釋漲跌原因的欄**：預估賣壓%(昨天預測)vs實際賣壓%(今天真的倒多少)＝預測有沒有兌現；
       今主力淨額(今天主力續買撐盤/在倒)；高檔回落%(衝高後被倒 vs 守住高檔)；
@@ -124,6 +133,9 @@ def snipe_ohlc(today: str, track: str = "隔日沖鎖碼") -> dict:
     sub = picks[picks["date"] == pdate].sort_values("rank")
     mf_map = dict(zip(sub["stock_id"].astype(str), sub["主力淨額"]))   # 存檔時記下的當日鎖碼淨額
     ep_map = dict(zip(sub["stock_id"].astype(str), sub["預估賣壓%"]))  # 當時預測的明日賣壓
+    # 昨天列出的兩份黑名單（存檔時記下＝pick 當下那一份，不重算）
+    mb_map = dict(zip(sub["stock_id"].astype(str), sub["全市場黑名單"]))
+    sb_map = dict(zip(sub["stock_id"].astype(str), sub["本檔黑名單"]))
 
     # ---- 解釋今天為何漲/跌的欄位（都對照 ref→tdate 這一天）----
     ids = [str(x) for x in sub["stock_id"]]
@@ -174,6 +186,8 @@ def snipe_ohlc(today: str, track: str = "隔日沖鎖碼") -> dict:
         tn = tnet_map.get(sid)
         rows.append({"rank": int(r.rank), "stock_id": sid, "name": r.name,
                      "鎖碼淨額": int(mf) if pd.notna(mf) else pd.NA,
+                     "全市場黑名單": mb_map.get(sid) if pd.notna(mb_map.get(sid)) else "",
+                     "本檔黑名單": sb_map.get(sid) if pd.notna(sb_map.get(sid)) else "",
                      "預估賣壓%": ep if pd.notna(ep) else pd.NA,
                      "實際賣壓%": real_map.get(sid, pd.NA),
                      "今主力淨額": int(tn) if tn is not None and pd.notna(tn) else pd.NA,
