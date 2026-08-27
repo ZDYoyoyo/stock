@@ -691,16 +691,22 @@ def main():
 
     OUTPUT_DIR.mkdir(parents=True, exist_ok=True)
     today = date.today().isoformat()
+    # pick 標籤用『資料日』(DB 最新交易日)而非執行日：兩者常不同(盤前跑、跨時區、補跑舊日)，
+    # 用執行日會把不同資料日的精選標成同一天而互相覆蓋 → 追蹤直接斷掉(2026-08 實際踩過)。
+    from src.db import connect as _connect
+    with _connect() as _c:
+        _dd = _c.execute("SELECT MAX(date) FROM price").fetchone()[0]
+    data_day = _dd or today
 
     # 昨日精選今日追蹤：先算昨日精選對今天的表現，再存今天的精選（供明天追蹤）
     import pandas as pd
     from src import picks_tracker as pt
-    ft = pt.followthrough(today)
+    ft = pt.followthrough(data_day)
     ftstats = pt.summary_stats(ft) if ft else {}
-    pt.save(today, {"波段T11": df11, "波段T16": df16, "當沖": dfdt,
-                    "隔日沖鎖碼": dfsnipe}, n=15)
+    pt.save(data_day, {"波段T11": df11, "波段T16": df16, "當沖": dfdt,
+                       "隔日沖鎖碼": dfsnipe}, n=15)
     # 昨日隔日沖鎖碼候選 → 今日開高低收（專屬區塊，具體驗證開高走低）
-    so = pt.snipe_ohlc(today)
+    so = pt.snipe_ohlc(data_day)
     sostats = pt.snipe_ohlc_stats(so)
     # 持股籌碼歸因算一次，.md 與 .html 共用（確保兩份內容一致）
     pf_attr = _holdings_attribution(pf_view) if not pf_view.empty else []
