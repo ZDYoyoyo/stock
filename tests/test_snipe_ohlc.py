@@ -156,6 +156,62 @@ def test_snipe_ohlc_html_survives_rows_without_blacklists():
     assert "妖股" in h
 
 
+def test_parse_bl():
+    """『分點+張數』字串 → dict；壞格式/空值不炸。"""
+    from src import picks_tracker as pt
+    assert pt._parse_bl("凱基台北+1234、美林+890") == {"凱基台北": 1234, "美林": 890}
+    assert pt._parse_bl("元大+-50") == {"元大": -50}
+    assert pt._parse_bl("") == {} and pt._parse_bl(None) == {}
+    assert pt._parse_bl(pd.NA) == {}
+    assert pt._parse_bl("沒有張數的名字") == {}
+
+
+def test_snipe_ohlc_blacklist_dump(monkeypatch):
+    """昨天黑名單各買幾張 → 今天各賣幾張（倒貨%＋逐點對照）。"""
+    from src import db, picks_tracker as pt, broker_client as bc, broker_signal as bs
+    import pandas as pd
+    price = [{"date": "D1", "stock_id": "9999", "open": 95, "high": 100, "low": 94,
+              "close": 100, "volume": 500},
+             {"date": "D2", "stock_id": "9999", "open": 108, "high": 110, "low": 101,
+              "close": 102, "volume": 500}]
+    with db.connect() as conn:
+        db.upsert(conn, "price", price)
+    pt.save("D1", {"隔日沖鎖碼": pd.DataFrame([
+        {"stock_id": "9999", "name": "妖股", "今主力淨額": 2000,
+         "黑名單明細": "凱基台北+1200、美林+800、元大+400"}])}, n=15)
+
+    # 今日：凱基台北全倒、美林倒一半、元大反手續買
+    monkeypatch.setattr(bc, "available", lambda: True)
+    monkeypatch.setattr(bs, "_branch_net",
+                        lambda sid, d: {"凱基台北": -1200, "美林": -400, "元大": 300}
+                        if d == "D2" else {})
+
+    r = pt.snipe_ohlc("D3")["rows"][0]
+    assert r["黑名單買張"] == 2400
+    assert r["黑名單賣張"] == 1600            # 1200 + 400（元大續買不算賣）
+    assert r["倒貨%"] == 66.7
+    assert "凱基台北 買1200→賣1200(100%)" in r["黑名單逐點"]
+    assert "美林 買800→賣400(50%)" in r["黑名單逐點"]
+    assert "元大 買400→今再買+300" in r["黑名單逐點"]
+
+
+def test_snipe_ohlc_blacklist_blank_without_broker(monkeypatch):
+    """無分點(無 Sponsor)→ 黑名單買賣欄留白，不謊報「沒賣」。"""
+    from src import db, picks_tracker as pt, broker_client as bc
+    import pandas as pd
+    with db.connect() as conn:
+        db.upsert(conn, "price", [
+            {"date": "D1", "stock_id": "9999", "open": 95, "high": 100, "low": 94,
+             "close": 100, "volume": 500},
+            {"date": "D2", "stock_id": "9999", "open": 108, "high": 110, "low": 101,
+             "close": 102, "volume": 500}])
+    pt.save("D1", {"隔日沖鎖碼": pd.DataFrame([
+        {"stock_id": "9999", "name": "妖股", "黑名單明細": "凱基台北+1200"}])}, n=15)
+    monkeypatch.setattr(bc, "available", lambda: False)
+    r = pt.snipe_ohlc("D3")["rows"][0]
+    assert pd.isna(r["黑名單買張"]) and pd.isna(r["黑名單賣張"]) and r["黑名單逐點"] == ""
+
+
 def test_picks_csv_backward_compatible(tmp_path, monkeypatch):
     """舊 picks.csv 沒有『預估賣壓%』『黑名單』欄也要能讀（向後相容）。"""
     from src import picks_tracker as pt
@@ -166,5 +222,5 @@ def test_picks_csv_backward_compatible(tmp_path, monkeypatch):
     monkeypatch.setattr(pt, "PICKS_CSV", old)
     df = pt._load()
     assert "預估賣壓%" in df.columns and pd.isna(df.iloc[0]["預估賣壓%"])
-    for c in ("全市場黑名單", "本檔黑名單"):
+    for c in ("全市場黑名單", "本檔黑名單", "黑名單明細"):
         assert c in df.columns and pd.isna(df.iloc[0][c])

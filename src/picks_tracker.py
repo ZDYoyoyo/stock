@@ -6,6 +6,8 @@
 """
 from __future__ import annotations
 
+import re
+
 import pandas as pd
 
 from .config import DATA_DIR
@@ -13,9 +15,9 @@ from .screeners import chip_diagnosis as cd
 
 PICKS_CSV = DATA_DIR / "history" / "picks.csv"
 _COLS = ["date", "track", "rank", "stock_id", "name", "主力淨額", "預估賣壓%",
-         "全市場黑名單", "本檔黑名單"]
+         "全市場黑名單", "本檔黑名單", "黑名單明細"]
 # pick 當下才算得出黑名單（要當日分點 + 當時的 broker_profile）→ 存下來，隔日追蹤直接顯示
-_EXTRA = ("主力淨額", "預估賣壓%", "全市場黑名單", "本檔黑名單")
+_EXTRA = ("主力淨額", "預估賣壓%", "全市場黑名單", "本檔黑名單", "黑名單明細")
 
 
 def _load() -> pd.DataFrame:
@@ -35,7 +37,8 @@ def save(today: str, tracks: dict, n: int = 15) -> pd.DataFrame:
     （隔日沖鎖碼軌）一併存下 → 追蹤時可直接顯示『當時鎖碼買了多少』，免重算；
     『預估賣壓佔量%』同理存下 → 隔日可比對「預測 vs 實際」賣壓；
     『全市場黑名單/本檔黑名單』也存下 → 追蹤時看得到當時是誰在鎖碼（隔日重算會失真：
-    分點快取會被 prune、broker_profile 也一直在更新，不是 pick 當下那份）。
+    分點快取會被 prune、broker_profile 也一直在更新，不是 pick 當下那份）；
+    『黑名單明細』（逐分點當日買進張數）同理存下 → 隔日可逐點算「這個人賣掉幾張」。
     """
     df = _load()
     df = df[df["date"] != today]  # 同日全清後重寫
@@ -51,7 +54,8 @@ def save(today: str, tracks: dict, n: int = 15) -> pd.DataFrame:
                          "主力淨額": int(mf) if pd.notna(mf) else pd.NA,
                          "預估賣壓%": ep if pd.notna(ep) else pd.NA,
                          "全市場黑名單": r.get("全市場黑名單", pd.NA),
-                         "本檔黑名單": r.get("本檔黑名單", pd.NA)})
+                         "本檔黑名單": r.get("本檔黑名單", pd.NA),
+                         "黑名單明細": r.get("黑名單明細", pd.NA)})
     if rows:
         df = pd.concat([df, pd.DataFrame(rows)], ignore_index=True)
     df = df.sort_values(["date", "track", "rank"]).reset_index(drop=True)
@@ -94,16 +98,34 @@ def followthrough(today: str) -> dict:
     return out
 
 
+_BL_RE = re.compile(r"^(.+)\+(-?\d+)$")
+
+
+def _parse_bl(s) -> dict:
+    """『凱基台北+1234、美林+890』→ {分點: 當日買進張}。空/NA/格式不符回 {}。"""
+    if s is None or (not isinstance(s, str) and pd.isna(s)):
+        return {}
+    out = {}
+    for part in str(s).split("、"):
+        m = _BL_RE.match(part.strip())
+        if m:
+            out[m.group(1)] = int(m.group(2))
+    return out
+
+
 def snipe_ohlc(today: str, track: str = "隔日沖鎖碼") -> dict:
     """昨日『隔日沖鎖碼候選』→ 今日開高低收走勢（具體看『開高走低』有沒有發生）。
 
     回傳 {"date": 昨日, "trade_date": 今交易日,
           "rows": [{rank, stock_id, name, 鎖碼淨額, 全市場黑名單, 本檔黑名單,
+                    黑名單買張, 黑名單賣張, 倒貨%, 黑名單逐點,
                     預估賣壓%, 實際賣壓%, 今主力淨額,
                     昨收, 今開, 今高, 今低, 今收, 漲跌%, 跳空%, 盤中%, 高檔回落%, 振幅%,
                     量能倍數, 當沖比%}]}。
       鎖碼淨額＝pick 當日主力淨額(前15買+前15賣)＝『當時鎖碼買了多少』(存檔時記下、免重算)。
       全市場/本檔黑名單＝昨天列出的隔日沖分點(存檔時記下)→ 可直接對照「這些人今天倒了沒」。
+      **黑名單買張/賣張/倒貨%/逐點**＝昨天上榜分點各買了幾張、今天各倒了幾張(倒貨%＝賣÷買)；
+      逐點如「凱基台北 買1234→賣1100(89%)」，今日反手續買則標『今再買』。需 Sponsor 分點。
       跳空%＝(今開−昨收)/昨收（隔夜高開幅度）；盤中%＝(今收−今開)/今開（開高走低幅度，負=走低）。
       **解釋漲跌原因的欄**：預估賣壓%(昨天預測)vs實際賣壓%(今天真的倒多少)＝預測有沒有兌現；
       今主力淨額(今天主力續買撐盤/在倒)；高檔回落%(衝高後被倒 vs 守住高檔)；
@@ -136,6 +158,8 @@ def snipe_ohlc(today: str, track: str = "隔日沖鎖碼") -> dict:
     # 昨天列出的兩份黑名單（存檔時記下＝pick 當下那一份，不重算）
     mb_map = dict(zip(sub["stock_id"].astype(str), sub["全市場黑名單"]))
     sb_map = dict(zip(sub["stock_id"].astype(str), sub["本檔黑名單"]))
+    # 逐分點「昨天各買幾張」→ 今日比對得出「各賣幾張」
+    bl_map = {str(k): _parse_bl(v) for k, v in zip(sub["stock_id"], sub["黑名單明細"])}
 
     # ---- 解釋今天為何漲/跌的欄位（都對照 ref→tdate 這一天）----
     ids = [str(x) for x in sub["stock_id"]]
@@ -159,6 +183,7 @@ def snipe_ohlc(today: str, track: str = "隔日沖鎖碼") -> dict:
     # 實際隔日沖賣壓%＝昨日前15大買分點今日轉賣的對沖量÷今量（＝昨天鎖碼的人今天真的倒了沒）
     # ＋今主力淨額（今天主力是續買撐盤還是在倒）。需 Sponsor 分點；走本機快取多半免重抓。
     real_map, tnet_map = {}, {}
+    bl_buy, bl_sell, bl_line = {}, {}, {}
     try:
         from . import broker_client as bc
         if bc.available():
@@ -169,6 +194,26 @@ def snipe_ohlc(today: str, track: str = "隔日沖鎖碼") -> dict:
                     tnet_map[sid] = one.get("主力淨額")
                     if "隔日沖賣壓%" in one:
                         real_map[sid] = one["隔日沖賣壓%"]
+                # 昨天上黑名單的分點，今天各自倒了幾張（net_t 已是張，不再換算）
+                bl = bl_map.get(sid) or {}
+                net_t = bs._branch_net(sid, tdate) if bl else {}
+                if bl and net_t:
+                    parts, sold = [], 0
+                    for k, b in sorted(bl.items(), key=lambda z: -z[1]):
+                        v = net_t.get(k)
+                        if v is None or round(v) == 0:
+                            parts.append(f"{k} 買{b}→今無進出")
+                            continue
+                        v = int(round(v))
+                        if v < 0:
+                            sold += -v
+                            parts.append(f"{k} 買{b}→賣{-v}"
+                                         + (f"({round(-v / b * 100)}%)" if b > 0 else ""))
+                        else:
+                            parts.append(f"{k} 買{b}→今再買+{v}")
+                    bl_buy[sid] = sum(bl.values())
+                    bl_sell[sid] = sold
+                    bl_line[sid] = "、".join(parts)
     except Exception:
         pass
 
@@ -184,10 +229,15 @@ def snipe_ohlc(today: str, track: str = "隔日沖鎖碼") -> dict:
             continue
         mf, ep = mf_map.get(sid), ep_map.get(sid)
         tn = tnet_map.get(sid)
+        bb, bs_ = bl_buy.get(sid), bl_sell.get(sid)
         rows.append({"rank": int(r.rank), "stock_id": sid, "name": r.name,
                      "鎖碼淨額": int(mf) if pd.notna(mf) else pd.NA,
                      "全市場黑名單": mb_map.get(sid) if pd.notna(mb_map.get(sid)) else "",
                      "本檔黑名單": sb_map.get(sid) if pd.notna(sb_map.get(sid)) else "",
+                     "黑名單買張": bb if bb is not None else pd.NA,
+                     "黑名單賣張": bs_ if bs_ is not None else pd.NA,
+                     "倒貨%": round(bs_ / bb * 100, 1) if bb else pd.NA,
+                     "黑名單逐點": bl_line.get(sid, ""),
                      "預估賣壓%": ep if pd.notna(ep) else pd.NA,
                      "實際賣壓%": real_map.get(sid, pd.NA),
                      "今主力淨額": int(tn) if tn is not None and pd.notna(tn) else pd.NA,

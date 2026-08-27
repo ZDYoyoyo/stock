@@ -11,6 +11,8 @@
 → 只對『主力淨買鎖碼』者列兩份黑名單：
   **全市場黑名單**＝跨所有股票的隔日沖慣犯(broker_profile，樣本大、帶隔日沖率%)
   **本檔黑名單**＝專門在這檔反覆昨買今賣的分點(近窗、專屬但樣本小)
+兩份黑名單都帶『各買幾張』(依張數排序)，並把逐分點買量存進『黑名單明細』→ 隔日追蹤區
+(picks_tracker.snipe_ohlc)可逐點對照「這個人最後倒了幾張」。
 ＋**預估賣壓張/佔量%**＝今日這些人買的量 × 各自歷史回吐率(前瞻，今天就能算)。
 """
 from __future__ import annotations
@@ -25,10 +27,12 @@ _LOOKBACK = 8      # 隔日沖常客回看交易日數
 _MIN_HITS = 2      # 窗內『昨買今賣』≥此次數才算此檔的隔日沖常客（本檔黑名單）
 _MID_RATE = 50     # 跨股票隔日沖率≥此%才進全市場黑名單（對齊 broker_profile._MID）
 _TOP = 15          # 主力＝前幾大分點（對齊 broker_signal）
+_BL_TOP = 6        # 『黑名單明細』最多記幾個分點（供隔日逐點對照「買幾張→賣幾張」）
 
 _COLS = ["stock_id", "name", "market", "產業", "close", "漲跌%", "成交額億",
          "當沖比率%", "昨主力淨額", "今主力淨額", "隔日沖賣壓%",
-         "預估賣壓張", "預估賣壓佔量%", "全市場黑名單", "本檔黑名單"]
+         "預估賣壓張", "預估賣壓佔量%", "全市場黑名單", "本檔黑名單",
+         "黑名單買張", "黑名單明細"]
 
 
 def _regulars(sid: str, dates: list[str]) -> set:
@@ -108,6 +112,7 @@ def run(gain_th: float = _GAIN_TH, top_n: int = _TOP_N, lookback: int = _LOOKBAC
     from .. import broker_client as bc
     prev_net, main_net, sell_pressure = {}, {}, {}
     market_bl, stock_bl, est_lots, est_pct = {}, {}, {}, {}
+    bl_lots, bl_detail = {}, {}
     if bc.available():
         from .. import broker_signal as bs
         from .. import broker_profile as bp
@@ -132,14 +137,25 @@ def run(gain_th: float = _GAIN_TH, top_n: int = _TOP_N, lookback: int = _LOOKBAC
                               if v > 0}
                 # 兩份黑名單分開列（不同訊號，別混）：
                 #  ①全市場＝跨所有股票的慣犯(樣本大、可信)  ②本檔＝專門玩這檔的(專屬、樣本小)
+                # 篩選看隔日沖率(是不是慣犯)，但排序看『買幾張』：率再高只買 20 張也威脅不大，
+                # 明日賣壓大小取決於量體 → 先列買最多的那幾個。
                 mkt = sorted((k for k in top_buyers if (pmap.get(k) or (0,))[0] >= _MID_RATE),
-                             key=lambda k: -pmap[k][0])
+                             key=lambda k: -net_t[k])
+                # 帶上『各買幾張』(net_t 已是張)：光看名字不知道量體，張數才知道明日壓力多大
                 if mkt:
-                    market_bl[sid] = "、".join(f"{k}{int(pmap[k][0])}%" for k in mkt[:2]) + \
+                    market_bl[sid] = "、".join(f"{k}+{int(round(net_t[k]))}張{int(pmap[k][0])}%"
+                                              for k in mkt[:2]) + \
                                      (f" +{len(mkt) - 2}" if len(mkt) > 2 else "")
-                own = sorted(_regulars(sid, win) & top_buyers)
+                own = sorted(_regulars(sid, win) & top_buyers, key=lambda k: -net_t[k])
                 if own:
-                    stock_bl[sid] = "、".join(own[:2]) + (f" +{len(own) - 2}" if len(own) > 2 else "")
+                    stock_bl[sid] = "、".join(f"{k}+{int(round(net_t[k]))}張" for k in own[:2]) + \
+                                    (f" +{len(own) - 2}" if len(own) > 2 else "")
+                # 兩份黑名單聯集的逐分點今日買進張數 → 存進 picks，隔日追蹤才能逐點對照「賣掉幾張」
+                # （隔日重算會失真：分點快取會被 prune、broker_profile 也一直在更新）
+                names = sorted(set(mkt) | set(own), key=lambda k: -net_t[k])[:_BL_TOP]
+                if names:
+                    bl_lots[sid] = int(round(sum(net_t[k] for k in names)))
+                    bl_detail[sid] = "、".join(f"{k}+{int(round(net_t[k]))}" for k in names)
                 # 前瞻預估：今日這些人買的量 × 各自歷史回吐率 → 明日潛在賣壓
                 est = bp.expected_pressure(net_t, volmap.get(sid), pmap)
                 if est:
@@ -152,6 +168,8 @@ def run(gain_th: float = _GAIN_TH, top_n: int = _TOP_N, lookback: int = _LOOKBAC
     df["預估賣壓佔量%"] = df["stock_id"].map(est_pct)
     df["全市場黑名單"] = df["stock_id"].map(market_bl)
     df["本檔黑名單"] = df["stock_id"].map(stock_bl)
+    df["黑名單買張"] = df["stock_id"].map(bl_lots).astype("Int64")
+    df["黑名單明細"] = df["stock_id"].map(bl_detail)
 
     df = df[_COLS]
     df.attrs["asof"] = today
