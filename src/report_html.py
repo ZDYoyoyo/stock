@@ -500,8 +500,17 @@ function pxClear(){document.getElementById('pxmax').value='';pxApply();}
 </script>"""
 
 
+def _warn_banner(msg) -> str:
+    """資料不完整警示（整批抓取失敗時），擺最頂端——殘缺報告不可以看起來像正常的。"""
+    if not msg:
+        return ""
+    return ('<div style="background:#7f1d1d;color:#fff;padding:12px 14px;border-radius:8px;'
+            f'margin:10px 0;font-weight:700">⚠️ {msg}</div>')
+
+
 def build(today, reg, glob_lines, sox, blocks, intersection=None,
-          followthrough=None, ftstats=None, snipe_ohlc=None, snipe_ohlc_stats=None) -> str:
+          followthrough=None, ftstats=None, snipe_ohlc=None, snipe_ohlc_stats=None,
+          data_warn=None) -> str:
     from .regime import summary_line
     banner = (f'<div class="banner {_regime_class(reg)}">🚦 {summary_line(reg)}'
               f'<small>{sox}<br>🌍 {" ｜ ".join(glob_lines)}</small></div>')
@@ -545,7 +554,7 @@ def build(today, reg, glob_lines, sox, blocks, intersection=None,
 <title>台股每日整合報告 {today}</title><style>{_CSS}</style></head>
 <body><div class="wrap">
 <h1>台股每日整合報告</h1><div class="sub">{today}　·　研究用途，非投資建議</div>
-{banner}
+{_warn_banner(data_warn)}{banner}
 <p class="note">💡 點<b>股票代號</b>可開該檔 K 線圖（Goodinfo，新分頁開啟）</p>
 {_pxctrl()}{_colctrl(blocks)}{body}
 <p class="note" style="margin-top:18px">{GLOSSARY}</p>

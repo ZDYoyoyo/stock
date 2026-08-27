@@ -224,3 +224,30 @@ def test_picks_csv_backward_compatible(tmp_path, monkeypatch):
     assert "預估賣壓%" in df.columns and pd.isna(df.iloc[0]["預估賣壓%"])
     for c in ("全市場黑名單", "本檔黑名單", "黑名單明細"):
         assert c in df.columns and pd.isna(df.iloc[0][c])
+
+
+def test_data_health_flags_partial_market():
+    """某市場整批沒抓到(筆數暴跌)→ 出警示；正常則不出。"""
+    import importlib
+    ra = importlib.import_module("scripts.run_all")
+    from src import db
+    with db.connect() as conn:
+        db.upsert(conn, "price", [{"date": "D1", "stock_id": str(9000 + i), "close": 10,
+                                   "volume": 1} for i in range(20)]
+                  + [{"date": "D2", "stock_id": str(9000 + i), "close": 10,
+                      "volume": 1} for i in range(8)])          # D2 只剩 8/20 檔
+    msg = ra._data_health("D2")
+    assert "資料可能不完整" in msg and "8 檔" in msg and "20 檔" in msg
+    assert ra._data_health("D1") == ""        # 非最新日 → 不判斷
+
+
+def test_data_health_quiet_when_complete():
+    import importlib
+    ra = importlib.import_module("scripts.run_all")
+    from src import db
+    with db.connect() as conn:
+        db.upsert(conn, "price", [{"date": "D1", "stock_id": str(9000 + i), "close": 10,
+                                   "volume": 1} for i in range(20)]
+                  + [{"date": "D2", "stock_id": str(9000 + i), "close": 10,
+                      "volume": 1} for i in range(19)])
+    assert ra._data_health("D2") == ""

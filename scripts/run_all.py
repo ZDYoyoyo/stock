@@ -41,6 +41,29 @@ def _is_cloud() -> bool:
     return bool(os.getenv("CLAUDE_CODE_REMOTE") or os.getenv("IS_SANDBOX"))
 
 
+def _data_health(day: str) -> str:
+    """整批抓取失敗偵測：今日筆數比前一交易日掉太多＝某個市場沒抓到（實際踩過 twse:—）。
+
+    無人看管的排程照樣會出報告＋推播，殘缺卻看不出來 → 回一句警示掛在報告頂端與推播首行。
+    回 "" 表示看起來正常。
+    """
+    from src.db import connect
+    try:
+        with connect() as c:
+            rows = c.execute("SELECT date, COUNT(*) FROM price GROUP BY date "
+                             "ORDER BY date DESC LIMIT 2").fetchall()
+    except Exception:
+        return ""
+    if len(rows) < 2 or rows[0][0] != day:
+        return ""
+    cur, prev = rows[0][1], rows[1][1]
+    if prev <= 0 or cur >= prev * 0.7:
+        return ""
+    return (f"資料可能不完整：{day} 只有 {cur} 檔，前一交易日 {prev} 檔"
+            f"（少了 {round((1 - cur / prev) * 100)}%）——多半是上市或上櫃整批沒抓到。"
+            f"請重跑一次；若仍如此，等資料源恢復再跑。此報告的篩選結果不可信。")
+
+
 def _update(days: int):
     print(f"[更新] 抓最近 {days} 天資料 …")
     subprocess.run([sys.executable, "-m", "scripts.update_data", "--days", str(days)],
@@ -697,6 +720,9 @@ def main():
     with _connect() as _c:
         _dd = _c.execute("SELECT MAX(date) FROM price").fetchone()[0]
     data_day = _dd or today
+    data_warn = _data_health(data_day)
+    if data_warn:
+        print(f"   ⚠️ {data_warn}")
 
     # 昨日精選今日追蹤：先算昨日精選對今天的表現，再存今天的精選（供明天追蹤）
     import pandas as pd
@@ -717,6 +743,8 @@ def main():
     _md_sink = open(path, "w", encoding="utf-8") if args.md else io.StringIO()
     with _md_sink as f:
         f.write(f"# 台股每日整合報告 — {today}\n\n")
+        if data_warn:
+            f.write(f"> ⚠️ **{data_warn}**\n\n")
         f.write("> ⚠️ 候選觀察名單，非投資建議。先看環境紅綠燈決定要不要出手。\n\n")
         f.write("## 🚦 環境紅綠燈\n\n")
         f.write(f"- **{regime_mod.summary_line(reg)}**\n")
@@ -882,7 +910,7 @@ def main():
     inter = [f"{s} {nm.get(s,'')}" for s in both]
     html = report_html.build(today, reg, gm.summary_lines(glob), gm.sox_signal(glob),
                              blocks, intersection=inter, followthrough=ft, ftstats=ftstats,
-                             snipe_ohlc=so, snipe_ohlc_stats=sostats)
+                             snipe_ohlc=so, snipe_ohlc_stats=sostats, data_warn=data_warn)
     html_path = OUTPUT_DIR / f"{today}_run_all.html"
     html_path.write_text(html, encoding="utf-8")
 
@@ -899,7 +927,10 @@ def main():
 
     if args.notify:
         from src.notify import notify
-        ok, ch, detail = notify(_summary(today, reg, glob, df11, df16, inter, dflt, df12, pf_view, pf_summary, dfdt, ft, ftstats),
+        _msg = _summary(today, reg, glob, df11, df16, inter, dflt, df12, pf_view, pf_summary, dfdt, ft, ftstats)
+        if data_warn:                       # 殘缺報告不可以推得像正常的 → 警示擺第一行
+            _msg = f"⚠️ <b>{data_warn}</b>\n\n" + _msg
+        ok, ch, detail = notify(_msg,
                                 subject=f"台股每日報告 {today}", file_path=str(html_path))
         print(f"   📲 推播（{ch}）：{'成功' if ok else '失敗 - ' + detail}")
 
