@@ -188,7 +188,8 @@ ul.ft { margin:4px 0 12px; padding-left:20px; font-size:13px; line-height:1.7; }
 .tblwrap { overflow: auto; max-height: 82vh; border-radius: 8px; box-shadow: 0 1px 3px rgba(0,0,0,.06); }
 table { border-collapse: separate; border-spacing: 0; width: 100%; font-size: 13px; background: #fff; }
 th, td { padding: 7px 10px; text-align: right; white-space: nowrap; }
-th { background: #2c3e50; color: #fff; font-weight: 600; }
+th { background: #2c3e50; color: #fff; font-weight: 600; cursor: pointer; user-select: none; }
+th:hover { background: #3a5169; }
 th small { display:block; font-weight:400; font-size:10px; opacity:.8; margin-top:1px; }
 td.pair { line-height: 1.25; font-variant-numeric: tabular-nums; }
 td.pair .tv { display:block; font-weight:600; }
@@ -295,10 +296,12 @@ def _table(df: pd.DataFrame, cols, signed_cols) -> str:
     id_col = next((c for c in _ID_COLS if c in cols), None)        # 這張表哪欄是代號（做 K 線外連）
     head = ""
     for c in cols:
+        # 表頭可點排序（純視圖，不動各軌本身的排序邏輯——那是回測驗證過的策略的一部分）
         if c in MERGE_GROUPS and c in df.columns:
-            head += f'<th data-col="{c}">{MERGE_GROUPS[c][0]}<small>{_GROUP_HEAD}</small></th>'
+            head += (f'<th data-col="{c}" onclick="sortT(this)">{MERGE_GROUPS[c][0]}'
+                     f'<small>{_GROUP_HEAD}</small></th>')
         else:
-            head += f'<th data-col="{c}">{label(c)}</th>'
+            head += f'<th data-col="{c}" onclick="sortT(this)">{label(c)}</th>'
     body = ""
     for _, row in df.iterrows():
         tds = ""
@@ -500,6 +503,37 @@ function pxClear(){document.getElementById('pxmax').value='';pxApply();}
 </script>"""
 
 
+_SORT_JS = """
+<script>
+// 點表頭排序（純視圖）。第一下由「差→好」還是「大→小」不猜，一律先降序、再點切升序。
+// 數字欄自動辨識：去掉 % 逗號 + 張 倍 等修飾後能 parseFloat 就當數字，否則按文字。
+function _num(td){
+ var t=(td.textContent||'').replace(/[,%+張倍億元]/g,'').trim();
+ if(t===''||t==='—'||t==='-')return null;
+ var v=parseFloat(t);return isNaN(v)?null:v;
+}
+function sortT(th){
+ var tb=th.closest('table'),body=tb.tBodies[0];
+ var idx=Array.prototype.indexOf.call(th.parentNode.children,th);
+ var desc=th.getAttribute('data-sort')!=='desc';
+ Array.prototype.forEach.call(th.parentNode.children,function(o){
+  o.removeAttribute('data-sort');o.textContent=o.textContent.replace(/[▲▼]$/,'');});
+ th.setAttribute('data-sort',desc?'desc':'asc');
+ th.insertAdjacentHTML('beforeend',desc?'▼':'▲');
+ var rows=Array.prototype.slice.call(body.rows);
+ rows.sort(function(a,b){
+  var x=a.cells[idx],y=b.cells[idx];if(!x||!y)return 0;
+  var nx=_num(x),ny=_num(y);
+  if(nx===null&&ny===null)return (x.textContent||'').localeCompare(y.textContent||'','zh-Hant');
+  if(nx===null)return 1;              // 空值一律沉底，不論升降序
+  if(ny===null)return -1;
+  return desc?(ny-nx):(nx-ny);
+ });
+ rows.forEach(function(r){body.appendChild(r);});
+}
+</script>"""
+
+
 def _warn_banner(msg) -> str:
     """資料不完整警示（整批抓取失敗時），擺最頂端——殘缺報告不可以看起來像正常的。"""
     if not msg:
@@ -555,8 +589,8 @@ def build(today, reg, glob_lines, sox, blocks, intersection=None,
 <body><div class="wrap">
 <h1>台股每日整合報告</h1><div class="sub">{today}　·　研究用途，非投資建議</div>
 {_warn_banner(data_warn)}{banner}
-<p class="note">💡 點<b>股票代號</b>可開該檔 K 線圖（Goodinfo，新分頁開啟）</p>
+<p class="note">💡 點<b>股票代號</b>開 K 線圖（Goodinfo，新分頁）　·　點<b>表頭</b>可依該欄排序（再點一次換升／降序）</p>
 {_pxctrl()}{_colctrl(blocks)}{body}
 <p class="note" style="margin-top:18px">{GLOSSARY}</p>
 <div class="disclaimer">⚠️ 本報告為候選觀察名單，非投資建議。紅漲綠跌為台股慣例。</div>
-</div>{_COLCTRL_JS}{_PX_JS}</body></html>"""
+</div>{_COLCTRL_JS}{_PX_JS}{_SORT_JS}</body></html>"""

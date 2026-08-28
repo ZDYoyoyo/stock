@@ -130,3 +130,38 @@ def test_no_csv_note_makes_no_false_promise():
                       "cols": ["stock_id", "name", "今日收盤"], "signed": []}])
     assert "需在控制台勾選「輸出 CSV」" in page
     assert "完整清單見同資料夾 CSV" not in page
+
+
+def test_table_headers_are_sortable():
+    """表頭可點排序（純視圖）：每個 th 帶 onclick，且排序 JS 有嵌進頁面。"""
+    import pandas as pd
+    from src import report_html as rh
+    df = pd.DataFrame([{"stock_id": "9999", "name": "妖股", "停損%": -8.7},
+                       {"stock_id": "8888", "name": "強股", "停損%": -1.8}])
+    h = rh._table(df, ["stock_id", "name", "停損%"], ["停損%"])
+    assert h.count("onclick=\"sortT(this)\"") == 3      # 三個欄都可點
+    assert "function sortT" in rh._SORT_JS and "localeCompare" in rh._SORT_JS
+
+
+def test_t16_entries_rank_modes():
+    """T16 排序模式：篩選結果相同，只有 score 換算方式不同；rs 為預設(已驗證那個)。"""
+    import pandas as pd
+    from src.portfolio_backtest import compute_t16_entries
+    # 兩檔同樣漲 10%，但 9999 波動大、8888 波動小
+    import itertools
+    rows = []
+    for i, d in enumerate([f"D{n:02d}" for n in range(40)]):
+        rows.append({"date": d, "stock_id": "9999", "open": 100, "high": 100,
+                     "low": 100, "close": 100 * (1.0025 ** i) * (1.05 if i % 2 else 0.95)})
+        rows.append({"date": d, "stock_id": "8888", "open": 100, "high": 100,
+                     "low": 100, "close": 100 * (1.0025 ** i)})
+    panel = {sid: g.reset_index(drop=True)
+             for sid, g in pd.DataFrame(rows).groupby("stock_id")}
+    rs = compute_t16_entries(panel, rank="rs")
+    lv = compute_t16_entries(panel, rank="lowvol")
+    assert rs and lv
+    d = sorted(set(rs) & set(lv))[-1]
+    assert {s for s, _ in rs[d]} == {s for s, _ in lv[d]}      # 篩選結果一致
+    # lowvol：分數 = −波動率 → 波動小的 8888 分數較高（排前面）
+    m = dict(lv[d])
+    assert m["8888"] > m["9999"]

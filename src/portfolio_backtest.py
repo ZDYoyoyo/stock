@@ -245,10 +245,16 @@ def slice_panel(panel: dict, lo: str = None, hi: str = None) -> dict:
 
 
 def compute_t16_entries(panel: dict, lookback: int = 10, min_ret: float = 0.0,
-                        max_ret: float = 0.30) -> dict:
+                        max_ret: float = 0.30, rank: str = "rs",
+                        vol_win: int = 20) -> dict:
     """T16 抗跌強勢 point-in-time：近 lookback 日報酬 − 當日全市場中位數 = 相對強弱(RS)。
 
-    回傳 {date: [(stock_id, RS)]}；只收 min_ret<=報酬<=max_ret（抗跌但不過度延伸），score=RS。
+    回傳 {date: [(stock_id, score)]}；只收 min_ret<=報酬<=max_ret（抗跌但不過度延伸）。
+    篩選條件三種 rank 都一樣，差別只在『同日多檔誰先進場』的排序分數：
+      rs      ＝ RS 高者優先（原版，+37.9% 樣本外驗證的就是這個，預設）
+      lowvol  ＝ 近 vol_win 日報酬波動率低者優先（風險低→高）
+      riskadj ＝ RS ÷ 波動率（風險調整後動能）
+    波動率逐日只用當日(含)以前的報酬算 → 無前視偏誤。
     """
     import statistics
     closes = {sid: df.sort_values("date")["close"].tolist() for sid, df in panel.items()}
@@ -260,12 +266,33 @@ def compute_t16_entries(panel: dict, lookback: int = 10, min_ret: float = 0.0,
             past = c[i - lookback]
             if past > 0:
                 ret_by_date.setdefault(dl[i], []).append((sid, c[i] / past - 1))
+
+    vol_by: dict[tuple, float] = {}
+    if rank != "rs":
+        for sid, c in closes.items():
+            dl = dates[sid]
+            dr = [0.0] + [(c[i] / c[i - 1] - 1) if c[i - 1] > 0 else 0.0
+                          for i in range(1, len(c))]
+            for i in range(max(lookback, vol_win), len(c)):
+                w = dr[i - vol_win + 1:i + 1]
+                if len(w) >= 5:
+                    vol_by[(sid, dl[i])] = statistics.pstdev(w)
+
     out: dict[str, list] = {}
     for d, lst in ret_by_date.items():
         med = statistics.median(r for _, r in lst)
         for sid, r in lst:
-            if min_ret <= r <= max_ret:
-                out.setdefault(d, []).append((sid, r - med))
+            if not (min_ret <= r <= max_ret):
+                continue
+            rs = r - med
+            if rank == "rs":
+                score = rs
+            else:
+                v = vol_by.get((sid, d))
+                if not v or v <= 0:
+                    continue                      # 算不出波動率就不排（樣本不足）
+                score = -v if rank == "lowvol" else rs / v
+            out.setdefault(d, []).append((sid, score))
     return out
 
 
