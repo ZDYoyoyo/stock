@@ -95,7 +95,7 @@ class Console:
 
         self._section(p, "資料 / 每週")
         self._btn(p, "🔄 更新資料", lambda: self.run(["scripts.update_data", "--days", "40"], "更新資料"))
-        self._btn(p, "🏦 更新千張大戶", lambda: self.run(["scripts.update_holders"], "更新千張大戶"))
+        self._btn(p, "🏦 更新千張大戶（補跑用）", lambda: self.run(["scripts.update_holders"], "更新千張大戶"))
 
         self._section(p, "回測資料")
         rowu = tk.Frame(p)

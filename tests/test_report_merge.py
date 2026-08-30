@@ -165,3 +165,41 @@ def test_t16_entries_rank_modes():
     # lowvol：分數 = −波動率 → 波動小的 8888 分數較高（排前面）
     m = dict(lv[d])
     assert m["8888"] > m["9999"]
+
+
+def test_update_holders_writes_week(monkeypatch, tmp_path):
+    """盤後順手更新千張大戶：寫進 DB 並回傳資料週（重跑同一週＝覆蓋，不重複累積）。"""
+    import importlib
+    from src import db, tdcc_client as tdcc
+    monkeypatch.setattr(db, "DB_PATH", str(tmp_path / "t.db"))
+    db.clear_cache()
+    with db.connect() as conn:
+        conn.executescript(db._SCHEMA)
+    rows = [{"date": "2026-08-28", "stock_id": "1101", "pct_1000": 52.4, "pct_400": 56.3},
+            {"date": "2026-08-28", "stock_id": "2330", "pct_1000": 78.1, "pct_400": 80.0}]
+    monkeypatch.setattr(tdcc, "fetch", lambda: rows)
+    ra = importlib.import_module("scripts.run_all")
+
+    assert ra._update_holders() == "2026-08-28"
+    assert ra._update_holders() == "2026-08-28"          # 冪等：再跑一次仍是同一週
+    with db.connect() as conn:
+        n = conn.execute("SELECT COUNT(*) FROM big_holders").fetchone()[0]
+    assert n == 2                                        # 覆蓋而非疊加
+    db.clear_cache()
+
+
+def test_update_holders_survives_source_failure(monkeypatch, tmp_path):
+    """TDCC 掛掉不可以擋住整份日報（大戶欄留白即可）。"""
+    import importlib
+    from src import db, tdcc_client as tdcc
+    monkeypatch.setattr(db, "DB_PATH", str(tmp_path / "t2.db"))
+    db.clear_cache()
+    ra = importlib.import_module("scripts.run_all")
+
+    def _boom():
+        raise RuntimeError("TDCC 503")
+    monkeypatch.setattr(tdcc, "fetch", _boom)
+    assert ra._update_holders() == ""
+    monkeypatch.setattr(tdcc, "fetch", lambda: [])
+    assert ra._update_holders() == ""
+    db.clear_cache()

@@ -64,6 +64,30 @@ def _data_health(day: str) -> str:
             f"請重跑一次；若仍如此，等資料源恢復再跑。此報告的篩選結果不可信。")
 
 
+def _update_holders() -> str:
+    """千張大戶（TDCC 集保股權分散）順手更新一次，回傳資料週（沒更新回 ""）。
+
+    TDCC 免費、每次只回最新一週、upsert 冪等 → 每天跑也只是覆蓋同一週，成本 1 call。
+    併進盤後流程是因為使用者得手動跑 3_更新千張大戶.bat 才會更新，實際漏過
+    （2026-08/16 之後兩週沒跑，資料斷在 08-14；更早還有 02-13 的缺口）。
+    抓不到不擋主流程——大戶欄留白即可。
+    """
+    try:
+        from src import db as _db, tdcc_client as _tdcc
+        rows = _tdcc.fetch()
+        if not rows:
+            return ""
+        _db.init_db()
+        with _db.connect() as conn:
+            n = _db.upsert(conn, "big_holders", rows)
+        week = rows[0]["date"]
+        print(f"[更新] 千張大戶 {n} 檔（資料週 {week}）")
+        return week
+    except Exception as e:
+        print(f"[更新] 千張大戶略過：{e}")
+        return ""
+
+
 def _update(days: int):
     print(f"[更新] 抓最近 {days} 天資料 …")
     subprocess.run([sys.executable, "-m", "scripts.update_data", "--days", str(days)],
@@ -81,6 +105,7 @@ def _update(days: int):
                        cwd=str(ROOT), check=False)
     except Exception as e:
         print(f"[更新] 當沖累積略過：{e}")
+    _update_holders()
     # ⚠️順序重要：先把快取折進『分點行為累計計數器』(進 git、永久累積)，再修剪快取。
     # 反過來的話，被剪掉的 60 天前資料就永遠沒被計入了。
     try:

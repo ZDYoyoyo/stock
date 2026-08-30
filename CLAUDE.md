@@ -141,8 +141,12 @@ python -m scripts.sync_data load               # 由 CSV 重建 stock.db
   可續跑；`--days N` 增量。run_all `_update` 已自動接(每日累積)。dump 隨 `sync_data` 進 CSV(進 git)。
 - `scripts/backfill_holders.py` — 回補千張大戶歷史→DB `big_holders` 表(Sponsor `TaiwanStockHoldingSharesPer`)。
   整市場逐週抓(1 call/週)、逐週 commit 可續跑；`aggregate_market` 純函式把分級明細→pct_1000(≥1000張)/pct_400(≥400張)，
-  **日期標籤與 pct 標準跟 TDCC 完全一致→無縫併入**。⚠️日更仍走**免費 TDCC**(`update_holders`，掉回免費照跑)；
-  這支只補歷史深度。跑後 `sync_data dump` 寫回 CSV(進 git)。用途：`enrich.big_holder_change_map` 千張週增減欄＋個股深掘大戶曲線。
+  **日期標籤與 pct 標準跟 TDCC 完全一致→無縫併入**。⚠️週更走**免費 TDCC**；這支只補歷史深度。
+  📌**千張大戶已改成盤後自動更新(2026-08)**：`run_all._update_holders()` 每次盤後順手抓一次 TDCC
+  (免費·只回最新一週·upsert 冪等·1 call·抓不到不擋主流程)。原本要使用者自己開 `3_更新千張大戶.bat`，
+  **實際漏過**——8/16 之後兩週沒跑、資料斷在 08-14(另有 02-13 舊缺口)，靠 Sponsor `backfill_holders` 才補回。
+  `update_holders`/該 .bat/GUI 鈕保留為**補跑用**。⚠️`update_holders` 自己不 dump 不 commit，
+  是靠 run_all 收尾的 `commit_data.sync()`(dump 整個 DB→CSV→push) 才會上 git。跑後 `sync_data dump` 寫回 CSV(進 git)。用途：`enrich.big_holder_change_map` 千張週增減欄＋個股深掘大戶曲線。
 - `src/broker_client.py` — 券商分點日報 client(`TaiwanStockTradingDailyReport`, Sponsor)：`available()` 偵測、
   `branch_summary` 主力買賣超摘要。⚠️分點僅**單日**查(`end_date` 需 none/等於 start)、**原始上萬列/檔不落 DB**。
   ⚠️**必須 `load_dotenv()`**（2026-08 修）：本機 token 寫在專案 `.env`，漏這行則 `_TOKEN=""`→`available()` 誤判「分點不可用(需 Sponsor)」，但抓資料(finmind_client 有 load_dotenv)照常→症狀＝有 Sponsor 卻只有分點失效。凡直接讀 FINMIND_TOKEN 的模組都要 load_dotenv。
