@@ -910,6 +910,7 @@ def main():
     ]
     if not pf_view.empty:
         blocks.append({
+            "key": "持股",          # 區塊收合用的穩定 key（標題含金額會變，不能當 key）
             "title": f"📋 我的持股（總損益 {pf_summary['總損益']:+,}｜{pf_summary['總報酬%']:+.2f}%）",
             "df": pf_view,
             "cols": ["代號", "名稱", "張數", "成本", "現價", "損益%", "損益金額", "停損", "狀態"],

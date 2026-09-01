@@ -203,3 +203,28 @@ def test_update_holders_survives_source_failure(monkeypatch, tmp_path):
     monkeypatch.setattr(tdcc, "fetch", lambda: [])
     assert ra._update_holders() == ""
     db.clear_cache()
+
+
+def test_sections_are_collapsible():
+    """每個區塊包成可收合 section，key 穩定（不用會變的標題/索引）。"""
+    import pandas as pd
+    from src import report_html as rh
+    df = pd.DataFrame([{"stock_id": "9999", "name": "妖股", "今日收盤": 100.0}])
+    blocks = [{"bt": "T16", "title": "🟡 波段｜T16 抗跌強勢", "df": df,
+               "cols": ["stock_id", "name", "今日收盤"], "signed": []},
+              {"key": "持股", "title": "📋 我的持股（總損益 +1,234｜+5.00%）", "df": df,
+               "cols": ["stock_id", "name", "今日收盤"], "signed": []}]
+    h = rh.build("2026-09-01", {"regime": "偏多"}, ["x"], "sox", blocks)
+    assert 'data-sec="T16"' in h and 'data-sec="持股"' in h   # 金額會變→持股用固定 key
+    assert h.count('onclick="secToggle(this)"') == 2
+    assert "secAll(false)" in h and "function secToggle" in rh._SEC_JS
+
+
+def test_sec_wrap_leaves_non_h2_html_alone():
+    """追蹤區沒資料時回空字串／非 h2 開頭 → 原樣返回，不硬包。"""
+    from src import report_html as rh
+    assert rh._sec_wrap("k", "") == ""
+    assert rh._sec_wrap("k", "<p>x</p>") == "<p>x</p>"
+    wrapped = rh._sec_wrap("鎖碼追蹤", "<h2>標題</h2><p>內容</p>")
+    assert 'data-sec="鎖碼追蹤"' in wrapped and "<p>內容</p>" in wrapped
+    assert "標題" in wrapped

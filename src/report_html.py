@@ -179,6 +179,9 @@ h1 { font-size: 22px; margin: 0 0 4px; }
 .reg-bull { background: #e8f7ee; border-color: #158a4e; }
 h2 { font-size: 16px; margin: 22px 0 4px; padding-bottom: 6px; border-bottom: 2px solid #e2e5ea; }
 h3 { font-size: 14px; margin: 14px 0 4px; }
+.sec h2 { cursor: pointer; user-select: none; }
+.sec h2:hover { color: #2c3e50; }
+.sec h2 .arw { display: inline-block; width: 1em; font-size: 12px; opacity: .65; }
 .note { color:#777; font-size:12px; margin: 0 0 8px; }
 .warn { background:#fff4f4; border-left:4px solid #d63031; border-radius:6px;
   padding:8px 14px; margin:8px 0; font-size:13px; }
@@ -534,6 +537,47 @@ function sortT(th){
 </script>"""
 
 
+def _sec(key: str, head: str, inner: str) -> str:
+    """一個可收合的區塊：點標題收合內容。表格很長，不想看的軌收起來就不用一直滑。"""
+    return (f'<section class="sec" data-sec="{key}">'
+            f'<h2 onclick="secToggle(this)"><span class="arw">\u25be</span>{head}</h2>'
+            f'<div class="secbody">{inner}</div></section>')
+
+
+def _sec_wrap(key: str, html: str) -> str:
+    """把既成的『<h2>…</h2>＋內容』區塊（追蹤區）包成可收合，不必改那些函式本身。"""
+    if not html or not html.startswith("<h2>"):
+        return html
+    head, _, rest = html[4:].partition("</h2>")
+    return _sec(key, head, rest)
+
+
+def _secctrl() -> str:
+    """區塊收合快捷列（沿用 pxctrl 樣式，跟欄位/價格控制排在一起）。"""
+    return ('<div class="pxctrl">\U0001f4c2 區塊：'
+            '<button onclick="secAll(false)">全部收合</button>'
+            '<button onclick="secAll(true)">全部展開</button>'
+            '<span class="pxhint">　點各區塊標題可單獨收合／展開，下次開報告會記住</span></div>')
+
+
+_SEC_JS = """
+<script>
+var SECK='twreport_collapsedSecs';
+function _secApply(s,open){var b=s.querySelector('.secbody');if(b)b.style.display=open?'':'none';
+ var a=s.querySelector('.arw');if(a)a.textContent=open?'\u25be':'\u25b8';}
+function _secSave(){var c=[];document.querySelectorAll('.sec').forEach(function(s){
+ if(s.dataset.open==='0')c.push(s.dataset.sec);});
+ try{localStorage.setItem(SECK,JSON.stringify(c));}catch(e){}}
+function secToggle(h){var s=h.closest('.sec');var open=s.dataset.open!=='0';
+ s.dataset.open=open?'0':'1';_secApply(s,!open);_secSave();}
+function secAll(open){document.querySelectorAll('.sec').forEach(function(s){
+ s.dataset.open=open?'1':'0';_secApply(s,open);});_secSave();}
+(function(){var c=[];try{c=JSON.parse(localStorage.getItem(SECK)||'[]');}catch(e){}
+ document.querySelectorAll('.sec').forEach(function(s){
+  var open=c.indexOf(s.dataset.sec)<0;s.dataset.open=open?'1':'0';_secApply(s,open);});})();
+</script>"""
+
+
 def _warn_banner(msg) -> str:
     """資料不完整警示（整批抓取失敗時），擺最頂端——殘缺報告不可以看起來像正常的。"""
     if not msg:
@@ -550,38 +594,40 @@ def build(today, reg, glob_lines, sox, blocks, intersection=None,
               f'<small>{sox}<br>🌍 {" ｜ ".join(glob_lines)}</small></div>')
 
     body = ""
-    for b in blocks:
-        body += f"<h2>{b['title']}{_verdict_badge(b.get('bt'))}</h2>"
+    for i, b in enumerate(blocks):
+        head = f"{b['title']}{_verdict_badge(b.get('bt'))}"
+        inner = ""
         if b.get("note"):
             note_html = "<br>".join(ln for ln in b["note"].split("\n") if ln.strip())
-            body += f'<p class="note">{note_html}</p>'
+            inner += f'<p class="note">{note_html}</p>'
         df = b["df"]
         if b.get("skipped"):
-            body += "<p>（已略過 --skip-longterm；要看長期軌請跑 <code>python -m scripts.run_longterm</code>）</p>"
+            inner += "<p>（已略過 --skip-longterm；要看長期軌請跑 <code>python -m scripts.run_longterm</code>）</p>"
         elif df is None or df.empty:
-            body += "<p>（今日無符合條件標的）</p>"
+            inner += "<p>（今日無符合條件標的）</p>"
         else:
             n = b.get("n")
             shown = df.head(n) if n else df
-            body += _table(shown, b["cols"], b.get("signed", []))
+            inner += _table(shown, b["cols"], b.get("signed", []))
             if n and len(df) > n:
                 csv = b.get("csv_name")
                 where = (f'完整清單見同資料夾 <code>{csv}</code>（可用 Excel 開）' if csv
                          else "完整清單需在控制台勾選「輸出 CSV」後重跑")
-                body += f'<p class="note">（僅顯示前 {n} 名，共 {len(df)} 檔符合；{where}）</p>'
+                inner += f'<p class="note">（僅顯示前 {n} 名，共 {len(df)} 檔符合；{where}）</p>'
         # 排雷提醒 callout（對齊 .md）：df 內有高風險則列紅旗
         if b.get("landmine"):
-            body += _landmine_html(df, b.get("landmine_label", "T11 候選"))
+            inner += _landmine_html(df, b.get("landmine_label", "T11 候選"))
         # 持股籌碼歸因（對齊 .md）：接在持股表後
         if b.get("attribution"):
-            body += _attr_html(b["attribution"])
+            inner += _attr_html(b["attribution"])
         if b.get("after_intersection") and intersection is not None:
             names = "、".join(intersection) if intersection else "（無）"
-            body += f'<div class="star">⭐ 雙訊號交集（法人買且抗跌）：{names}</div>'
+            inner += f'<div class="star">⭐ 雙訊號交集（法人買且抗跌）：{names}</div>'
+        body += _sec(b.get("key") or b.get("bt") or f"sec{i}", head, inner)
 
     # 昨日精選今日追蹤（對齊 .md）：擺在各軌之後、術語小抄之前
-    body += _snipe_ohlc_html(snipe_ohlc, snipe_ohlc_stats)
-    body += _followthrough_html(followthrough, ftstats)
+    body += _sec_wrap("鎖碼追蹤", _snipe_ohlc_html(snipe_ohlc, snipe_ohlc_stats))
+    body += _sec_wrap("昨日追蹤", _followthrough_html(followthrough, ftstats))
 
     return f"""<!doctype html><html lang="zh-Hant"><head><meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
@@ -590,7 +636,7 @@ def build(today, reg, glob_lines, sox, blocks, intersection=None,
 <h1>台股每日整合報告</h1><div class="sub">{today}　·　研究用途，非投資建議</div>
 {_warn_banner(data_warn)}{banner}
 <p class="note">💡 點<b>股票代號</b>開 K 線圖（Goodinfo，新分頁）　·　點<b>表頭</b>可依該欄排序（再點一次換升／降序）</p>
-{_pxctrl()}{_colctrl(blocks)}{body}
+{_pxctrl()}{_secctrl()}{_colctrl(blocks)}{body}
 <p class="note" style="margin-top:18px">{GLOSSARY}</p>
 <div class="disclaimer">⚠️ 本報告為候選觀察名單，非投資建議。紅漲綠跌為台股慣例。</div>
-</div>{_COLCTRL_JS}{_PX_JS}{_SORT_JS}</body></html>"""
+</div>{_COLCTRL_JS}{_PX_JS}{_SORT_JS}{_SEC_JS}</body></html>"""
