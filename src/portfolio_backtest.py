@@ -296,6 +296,56 @@ def compute_t16_entries(panel: dict, lookback: int = 10, min_ret: float = 0.0,
     return out
 
 
+def compute_t11q_entries(panel: dict, *, lb: int = 20, buy_ratio: float = 0.02,
+                         min_days: int = 10, ret_lo: float = -0.08, ret_hi: float = 0.08,
+                         ma_dev: float = 0.05, vol_sq: float = 1.0,
+                         pos_max: float = 60.0) -> dict:
+    """T11Q『潛伏吸籌』point-in-time：法人持續買、但價格還在整理（尚未噴出）。
+
+    跟 T11 的差別在**價格條件反過來**：T11 找『已經在漲＋法人買』(那是動能的劣化版，
+    T16 做得更好、T11 回測 −16%)；這裡找『法人一直買但還沒動』，賭的是籌碼領先價格。
+
+    回傳 {date: [(stock_id, score)]}，score＝窗內法人淨買佔量（吸得越兇越前面）。
+    條件（全部只用第 i 日(含)以前的資料）：
+      吸籌   窗內法人淨買÷成交量 >= buy_ratio，且窗內淨買日數 >= min_days（要持續，非單日大買）
+      沒漲   窗內報酬 ∈ [ret_lo, ret_hi]
+      貼均線 |收盤/MA20 − 1| <= ma_dev
+      量縮   近10日均量 ÷ 近60日均量 <= vol_sq（整理期的量化定義）
+      位階   52週位置% <= pos_max（不在高檔）
+    ⚠️ 千張大戶同步加碼（大戶在收 vs 散戶在接）進不了這裡——面板只有價量+法人，
+       大戶是週頻另存 DB big_holders。實盤版可再加，但**這個回測沒驗證過那一條**。
+    """
+    out: dict[str, list] = {}
+    for sid, df in panel.items():
+        df = df.sort_values("date")
+        c = df["close"].tolist(); v = df["volume"].tolist()
+        n = df["inst_net"].tolist(); d = df["date"].tolist()
+        for i in range(240, len(c)):                   # 要滿 52 週才算得出位階
+            lo_i = i - lb + 1
+            wv, wn = v[lo_i:i + 1], n[lo_i:i + 1]
+            sv = sum(wv)
+            if sv <= 0 or c[lo_i] <= 0:
+                continue
+            br = sum(wn) / sv
+            if br < buy_ratio or sum(1 for x in wn if x > 0) < min_days:
+                continue
+            r = c[i] / c[lo_i] - 1
+            if not (ret_lo <= r <= ret_hi):
+                continue
+            ma20 = sum(c[i - 19:i + 1]) / 20
+            if ma20 <= 0 or abs(c[i] / ma20 - 1) > ma_dev:
+                continue
+            v10 = sum(v[i - 9:i + 1]) / 10
+            v60 = sum(v[i - 59:i + 1]) / 60
+            if v60 <= 0 or v10 / v60 > vol_sq:
+                continue
+            hi, lo = max(c[i - 239:i + 1]), min(c[i - 239:i + 1])
+            if hi > lo and (c[i] - lo) / (hi - lo) * 100 > pos_max:
+                continue
+            out.setdefault(d[i], []).append((sid, br))
+    return out
+
+
 def load_revenue_panel(path) -> dict:
     """讀月營收面板（backfill_revenue 產出的 csv.gz）→ {sid: df[pub_date, ym, yoy, cum_yoy]}。
 

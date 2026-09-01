@@ -231,3 +231,39 @@ if __name__ == "__main__":
         fn()
         print(f"  ✓ {fn.__name__}")
     print(f"\n✅ {len(fns)}/{len(fns)} passed")
+
+
+def test_t11q_entries_no_lookahead_and_filters():
+    """T11Q 潛伏吸籌：只用當日(含)以前資料；漲太多／量沒縮／在高檔都不該入選。"""
+    import pandas as pd
+    from src.portfolio_backtest import compute_t11q_entries
+
+    def _panel(closes, vols, nets):
+        d = [f"D{i:04d}" for i in range(len(closes))]
+        return {"9999": pd.DataFrame({"date": d, "open": closes, "high": closes,
+                                      "low": closes, "close": closes, "volume": vols,
+                                      "inst_net": nets, "margin_balance": [0] * len(closes)})}
+
+    n = 300
+    # 基準情境：長期橫盤(100附近)、法人天天小買、近期量縮 → 應該入選
+    closes = [100 + (i % 3) * 0.2 for i in range(n)]
+    vols = [1000] * (n - 10) + [500] * 10
+    nets = [30] * n
+    e = compute_t11q_entries(_panel(closes, vols, nets))
+    assert e, "橫盤+法人持續買+量縮 應該要有訊號"
+    assert all(d >= "D0240" for d in e), "未滿 52 週不該出訊號（要算位階）"
+
+    # 法人沒買 → 無訊號（吸籌是必要條件）
+    assert not compute_t11q_entries(_panel(closes, vols, [0] * n))
+
+    # 量沒縮 → 無訊號。爆量只發生在最後 10 天，所以只有那幾天該被擋掉
+    # （更早的日子當下量能仍是縮的，有訊號才對——這正是 point-in-time 的意思）
+    e2 = compute_t11q_entries(_panel(closes, [1000] * (n - 10) + [3000] * 10, nets))
+    assert not [d for d in e2 if d >= "D0295"], "近10日爆量的那幾天不該入選"
+    assert [d for d in e2 if d < "D0290"], "爆量之前的日子不受影響"
+
+    # 已經噴上去 → 無訊號（這正是與 T11 相反的那條）。噴出只在最後 20 天，
+    # 同樣只有「窗內看得到漲幅」的那幾天該被擋掉。
+    up = closes[:n - 20] + [100 * (1 + 0.02 * i) for i in range(20)]
+    e3 = compute_t11q_entries(_panel(up, vols, nets))
+    assert not [d for d in e3 if d >= "D0285"], "窗內已大漲的日子不該入選"
