@@ -427,6 +427,25 @@ FinMind Sponsor 已辦，規劃見 `docs/Sponsor升級規劃.md`。本 session �
   run_t16_oos：OOS +37.9%/夏普1.11 小勝買入持有但回撤更深、逐折分散、edge 存活但脆弱）；
   ✅T12 樣本外(已完成，OOS 失效)；待做：價值軌納配息年數/EPS 因子、上櫃估值(BWIBBU_d 僅上市)。
 
+## ⏰ 雲端每日排程（Routine）— 已在跑，別重複建
+
+**`trig_016xwY12vyaJrJDYXCckDaLJ`｜台股盤後自動選股＋推播｜工作日 21:30 台北**（cron `30 13 * * 1-5` UTC）。
+每次**開全新 session**執行：同步 → `pip install -r requirements.txt` → `sync_data load` →
+`run_all --notify` → 完整性檢查 → `dump --keep-days 260` → commit + push。
+用 `mcp__Claude_Code_Remote__list_triggers` 可查；改 prompt 用 `update_trigger`（別 delete 重建，會丟 run 紀錄）。
+
+⚠️**為什麼是 fresh session 而不是綁定某個 session**（2026-09 踩過）：原本綁在互動 session 上，
+結果排程雖準時觸發，但**訊息只是進該 session 的佇列、要等它被喚醒才執行**——9/3 那天閒置 3 小時
+沒跑，使用者當天沒收到報告。fresh session 每次開新容器立即執行，**不受任何 session 的
+compact／閒置／容器回收影響**。代價：回報進另一個 session，所以：
+- **Telegram 推播是使用者的主要管道**（`run_all --notify`），不是 session 回報。
+- 排程 prompt 因此要求：**任何步驟失敗就主動發一則 Telegram 錯誤訊息**（`src.notify.send_telegram`）
+  ——否則失敗時完全靜默，使用者只會覺得「今天怎麼沒收到」。
+- Claude 端的 push/email 通知刻意關閉（`notifications:{}`），避免與 Telegram 重複。
+
+📌 使用者要看當日報告細節時會回互動 session 問；`reports/screener/` **不進 git**（.gitignore），
+所以要重看舊報告得重跑或用 `daytrade_snipe.run(asof=)` 之類重建。
+
 ## 提醒使用者的常見事項
 
 - 最新籌碼數值與各軌完整 CSV，需**實際跑一次 `一鍵執行/1_盤後選股.bat`** 才會產生當日檔。
