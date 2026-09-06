@@ -429,22 +429,26 @@ FinMind Sponsor 已辦，規劃見 `docs/Sponsor升級規劃.md`。本 session �
 
 ## ⏰ 雲端每日排程（Routine）— 已在跑，別重複建
 
-**`trig_016xwY12vyaJrJDYXCckDaLJ`｜台股盤後自動選股＋推播｜工作日 21:30 台北**（cron `30 13 * * 1-5` UTC）。
-每次**開全新 session**執行：同步 → `pip install -r requirements.txt` → `sync_data load` →
-`run_all --notify` → 完整性檢查 → `dump --keep-days 260` → commit + push。
-用 `mcp__Claude_Code_Remote__list_triggers` 可查；改 prompt 用 `update_trigger`（別 delete 重建，會丟 run 紀錄）。
+**`trig_01VcrdHdRLu3PaH39LuFsFH4`｜台股盤後（工作日 21:30 台北）— 打進本 session**（cron `30 13 * * 1-5` UTC）。
+**self-bind**（persist_session，綁 `session_01SHwmGGjTDA1GJ3RnN77um4`）：同步 → 確認依賴 →
+`sync_data load` → `run_all --notify` → 完整性檢查 → `dump --keep-days 260` → commit + push → 傳報告。
+用 `list_triggers` 可查；改 prompt 用 `update_trigger`（別 delete 重建，會丟 run 紀錄）。
 
-⚠️**為什麼是 fresh session 而不是綁定某個 session**（2026-09 踩過）：原本綁在互動 session 上，
-結果排程雖準時觸發，但**訊息只是進該 session 的佇列、要等它被喚醒才執行**——9/3 那天閒置 3 小時
-沒跑，使用者當天沒收到報告。fresh session 每次開新容器立即執行，**不受任何 session 的
-compact／閒置／容器回收影響**。代價：回報進另一個 session，所以：
-- **Telegram 推播是使用者的主要管道**（`run_all --notify`），不是 session 回報。
-- 排程 prompt 因此要求：**任何步驟失敗就主動發一則 Telegram 錯誤訊息**（`src.notify.send_telegram`）
-  ——否則失敗時完全靜默，使用者只會覺得「今天怎麼沒收到」。
-- Claude 端的 push/email 通知刻意關閉（`notifications:{}`），避免與 Telegram 重複。
+⚠️⚠️ **fresh session（`create_new_session_on_fire`）試過，不能用**（2026-09 實測兩次）：
+排程會準時觸發、session 也真的跑了（3~7 分鐘、狀態 SUCCEEDED），但**Telegram 推播發不出去、
+git 也 push 不上來**——兩條回報管道同時失效，從外部完全拿不到診斷資訊（我刻意做了「把診斷結果
+push 進 git」的測試想繞過推播問題，結果連那個 push 也沒上來）。
+症狀：9/4 排程「成功」但 git 無 commit、使用者沒收到任何推播、連失敗通知都沒有。
+推測原因：trigger 建的 session `config.sources`/`outcomes` 都是空的 → **容器可能根本沒掛這個 repo**；
+而 `create_trigger` 工具**沒有指定 repo 的參數**，無法從 MCP 這邊補。
+→ **除非確認 fresh session 能掛到 repo，否則別再改回去。**
 
-📌 使用者要看當日報告細節時會回互動 session 問；`reports/screener/` **不進 git**（.gitignore），
-所以要重看舊報告得重跑或用 `daytrade_snipe.run(asof=)` 之類重建。
+📌 self-bind 的已知代價：訊息只是進 session 佇列，**要等 session 被喚醒才執行**，可能延遲數小時
+（9/3 延遲 3 小時、當天沒收到報告，使用者主動問才補跑）。使用者已知並接受——
+**延遲總比 fresh session 那樣完全靜默失敗好**。排程 prompt 因此加了「順手檢查有沒有漏跑的日子」
+（DB 最新交易日比上一個交易日還舊 → `update_data --days 5` 補回來）。
+
+📌 `reports/screener/` **不進 git**（.gitignore），要重看舊報告得重跑。
 
 ## 提醒使用者的常見事項
 
