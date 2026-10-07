@@ -69,6 +69,23 @@ python -m scripts.run_stock 1303 --days 30     # 個股籌碼深掘（單檔病�
 python -m scripts.sync_data load               # 由 CSV 重建 stock.db
 ```
 
+🔴🔴 **Sponsor 已於 2026-10-07 到期（實測確認）**：API 直接回
+`Your level is register. Please update your user level.`（HTTP 400）。token 仍在、長度正常，是**會員等級掉回 register**。
+**逐 dataset 實測**（2026-10-07），只有兩個 Sponsor 專屬的失效：
+- ❌ `TaiwanStockTradingDailyReport` 分點日報 → **影響最大**：第6軌兩份黑名單/黑名單明細、
+  五軌「主力淨額」「隔日沖賣壓%」、隔日追蹤區「他們倒了幾張」整組、個股深掘分點區、
+  `broker_profile.expected_pressure` 預估賣壓 全部留白。第6軌實質降級成「漲停/大漲清單」。
+- ❌ `TaiwanStockHoldingSharesPer` 千張大戶**歷史回補**（`backfill_holders`）→ 日常週更走**免費 TDCC**，不受影響。
+- ✅ 仍可用：借券餘額 `TaiwanDailyShortSaleBalances`、外資持股 `TaiwanStockShareholding`、
+  月營收 `TaiwanStockMonthRevenue`、財報 `TaiwanStockFinancialStatements`、估值 `TaiwanStockPER`。
+  （測這些時若回 0 筆要先確認 start_date 區間內是否本來就沒資料——月頻/季頻資料容易誤判成權限問題。）
+📌 `broker_profile` 持久化計數器仍有 ~12.5 萬樣本在 CSV/DB，**歷史分點行為檔案沒丟**，
+但沒有當日分點就無法判斷「今天誰在買」→ 計數器只會停止累積，不會失效。
+📌 `broker_client.available()` 用固定探測日 `2026-07-17` 判定，結果會 **process 內快取**；
+Sponsor 恢復後要重跑程序才會重新偵測。
+⚠️ 10-07 當天的 picks 已存入空的黑名單欄 → 10-08 的追蹤區會是空的，無法事後補（分點是逐日單查）。
+
+（以下為 Sponsor 有效期間的原始記錄，續訂後仍適用）
 ✅ **已辦 FinMind Sponsor（2026-08，token 在環境變數 `FINMIND_TOKEN`）**：額度 6000/時、解鎖
 分點日報(`TaiwanStockTradingDailyReport`)＋千張大戶歷史(`TaiwanStockHoldingSharesPer`)＋借券已全市場落 DB。
 升級規劃與實作順序見 `docs/Sponsor升級規劃.md`。⚠️ 別用多帳號多 token 繞額度（違反 ToS，帳號可能被封）。
