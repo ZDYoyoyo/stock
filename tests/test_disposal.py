@@ -63,5 +63,8 @@ def test_enrich_noop_on_empty_map():
 def test_fetch_handles_network_failure(monkeypatch):
     def boom(*a, **k):
         raise OSError("network down")
-    monkeypatch.setattr(dp.requests, "get", boom)
+    # 抓取已改走共用的 src.httpjson（帶退避重試）→ 在那裡擋；sleep 設成不等，免測試變慢
+    from src import httpjson
+    monkeypatch.setattr(httpjson.requests, "get", boom)
+    monkeypatch.setattr(httpjson.time, "sleep", lambda s: None)
     assert dp.fetch_disposals() == {} and dp.fetch_notices() == {}   # graceful

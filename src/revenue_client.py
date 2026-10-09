@@ -10,7 +10,7 @@
 """
 from __future__ import annotations
 
-import requests
+from .httpjson import get_json_list
 
 _TWSE_URL = "https://openapi.twse.com.tw/v1/opendata/t187ap05_L"
 _TPEX_URL = "https://www.tpex.org.tw/openapi/v1/mopsfin_t187ap05_O"
@@ -57,15 +57,9 @@ def _parse(rows: list, market: str) -> list:
     return out
 
 
-def _get(url: str, retries: int = 3) -> list:
-    for i in range(retries):
-        try:
-            r = requests.get(url, headers=_HEADERS, timeout=30, verify=True)
-            if r.status_code == 200 and r.text.strip().startswith("["):
-                return r.json()
-        except requests.RequestException:
-            pass
-    return []
+def _get(url: str) -> list:
+    """走共用的退避重試（TWSE openapi 會間歇回 WAF 阻擋頁，見 src/httpjson）。"""
+    return get_json_list(url, headers=_HEADERS)
 
 
 def fetch_all() -> list:

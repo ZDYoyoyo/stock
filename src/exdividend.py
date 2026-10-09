@@ -14,7 +14,7 @@ from __future__ import annotations
 import re
 from datetime import date
 
-import requests
+from .httpjson import get_json_list
 
 _TWSE = "https://openapi.twse.com.tw/v1/exchangeReport/TWT48U_ALL"
 _TPEX = "https://www.tpex.org.tw/openapi/v1/tpex_exright_prepost"
@@ -40,14 +40,8 @@ def _num(v):
 
 
 def _get(url: str) -> list:
-    try:
-        r = requests.get(url, timeout=_TIMEOUT)
-        if r.status_code != 200:
-            return []
-        data = r.json()
-        return data if isinstance(data, list) else []
-    except Exception:
-        return []
+    """走共用的退避重試；全失敗才回 []（原本一次失敗就靜默略過，上市除權息會整批消失）。"""
+    return get_json_list(url, timeout=_TIMEOUT)
 
 
 def fetch_events() -> dict:

@@ -16,7 +16,7 @@ from __future__ import annotations
 import re
 from datetime import date
 
-import requests
+from .httpjson import get_json_list
 
 _TWSE_PUNISH = "https://openapi.twse.com.tw/v1/announcement/punish"
 _TWSE_NOTICE = "https://openapi.twse.com.tw/v1/announcement/notice"
@@ -56,14 +56,8 @@ def _period(s: str) -> tuple[str | None, str | None]:
 
 
 def _get(url: str) -> list:
-    try:
-        r = requests.get(url, timeout=_TIMEOUT)
-        if r.status_code != 200:
-            return []
-        data = r.json()
-        return data if isinstance(data, list) else []
-    except Exception:
-        return []                              # 斷網/改版/JSON 壞掉 → 靜默略過
+    """走共用的退避重試；全失敗才回 []（原本一次失敗就靜默略過，上市處置股會整批消失）。"""
+    return get_json_list(url, timeout=_TIMEOUT)
 
 
 def fetch_disposals() -> dict:

@@ -28,13 +28,23 @@ def _num(s):
         return 0
 
 
-def _get(path: str, params: dict, retries: int = 3) -> dict:
+def _get(path: str, params: dict, retries: int = 3, *, need_ok: bool = False) -> dict:
+    """need_ok=True 時把 `stat != "OK"` 也當失敗重試（不只網路層失敗）。
+
+    為什麼：2026-10-08 實測 T86 法人**整批回 0**（log 印 `twse:i0`）而同一輪的
+    price/margin 都正常 → 是該端點那一刻的暫時狀態，不是當日未公布。原本這條路徑
+    直接回空且不重試，法人欄就整批靜默消失。真的未公布/假日則重試完回 {}，行為不變。
+    """
     for i in range(retries):
         try:
             r = requests.get(f"{_BASE}/{path}", params=params, headers=_HEADERS, timeout=60)
             r.raise_for_status()
-            return r.json()
+            d = r.json()
+            if not need_ok or d.get("stat") == "OK":
+                return d
         except (requests.RequestException, ValueError):
+            pass
+        if i < retries - 1:
             time.sleep(2 * (i + 1))
     return {}
 
@@ -106,7 +116,8 @@ def stock_names(date: str) -> dict[str, str]:
 
 def institutional(date: str) -> list[dict]:
     """回傳 [{date,stock_id,foreign_net,trust_net,dealer_net}]（張）。當日未公布回空。"""
-    d = _get("fund/T86", {"date": date, "selectType": "ALLBUT0999", "response": "json"})
+    d = _get("fund/T86", {"date": date, "selectType": "ALLBUT0999", "response": "json"},
+             need_ok=True)
     if d.get("stat") != "OK":
         return []
     fields = d.get("fields") or []
