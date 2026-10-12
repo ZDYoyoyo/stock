@@ -11,6 +11,10 @@
   5. 收盤在 20 日均線附近 ±MA_NEAR_PCT（打底而非高檔）
   6. 期間日均量 > MIN_AVG_VOLUME（流動性）
 """
+# 使用者本機是 Python 3.9：`int | None` 這種 PEP 604 寫法在 3.9 會在 **import 時**就炸
+# （`TypeError: unsupported operand type(s) for |`）→ 整份盤後跑不起來。加這行把型別註記延後求值。
+from __future__ import annotations
+
 import pandas as pd
 
 from ..config import T11
