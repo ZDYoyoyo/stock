@@ -173,12 +173,11 @@ def compute_latest(stock_ids, live_ids=None, asof: str | None = None) -> pd.Data
     if not ids:
         return pd.DataFrame(columns=_DB_COLS)
     asof = asof or _latest_date()
+    live = ids if live_ids is None else (
+        ids & {str(s).strip() for s in live_ids if pd.notna(s) and str(s).strip()})
 
-    if latest_db_date() != asof:        # 全市場抓不到（Sponsor 到期）→ 只替會顯示的候選逐檔補
-        targets = ids if live_ids is None else (
-            ids & {str(s).strip() for s in live_ids if pd.notna(s) and str(s).strip()})
-        if targets:
-            backfill_live(targets, end_iso=asof)
+    if live and latest_db_date() != asof:   # 全市場抓不到（Sponsor 到期）→ 只替會顯示的候選逐檔補
+        backfill_live(live, end_iso=asof)
 
     out = compute_from_db(ids, asof=asof)
     if out.empty:
@@ -187,7 +186,11 @@ def compute_latest(stock_ids, live_ids=None, asof: str | None = None) -> pd.Data
     out = out[out[_DATE_COL].map(stale) <= _MAX_STALE_DAYS].reset_index(drop=True)
     if out.empty:
         return pd.DataFrame(columns=_DB_COLS)
-    if (out[_DATE_COL] == asof).all():
+    # 資料日只在「不是當日」時才有資訊量：當日的留白，整欄都沒東西可講就直接不要這一欄。
+    # 判斷只看 live（＝報告真的會顯示的那幾檔）：表尾那幾百檔沒補到，不該害顯示列多一欄全是今天的日期。
+    fresh = out[_DATE_COL] == asof
+    out.loc[fresh, _DATE_COL] = pd.NA
+    if out.loc[out["stock_id"].isin(live), _DATE_COL].isna().all():
         out = out.drop(columns=[_DATE_COL])
     return out
 

@@ -196,6 +196,26 @@ def test_compute_latest_only_spends_api_on_live_ids(monkeypatch, tmp_path):
     assert asked == ["1303"]
 
 
+def test_compute_latest_blank_for_fresh_rows_and_no_col_when_shown_all_fresh(monkeypatch, tmp_path):
+    """資料日只在『不是當日』時才有資訊量。
+
+    表尾那幾百檔（不在 live_ids、報告不會顯示）沒補到，不該害顯示列多出一整欄「2026-10-12」。
+    """
+    _tmp_db(monkeypatch, tmp_path, [
+        {"date": "2026-10-12", "stock_id": "1303", "sbl_balance": 20651},   # 會顯示、已是當日
+        {"date": "2026-10-08", "stock_id": "2330", "sbl_balance": 13282},   # 不顯示、仍是舊的
+    ], _DAYS)
+    monkeypatch.setattr(sbl_signal, "fetch", lambda *a, **k: [])
+    out = sbl_signal.compute_latest(["1303", "2330"], live_ids=["1303"])
+    assert "借券資料日" not in out.columns
+    assert len(out) == 2                      # 舊的那檔沒被刪（只是沒標日，反正不會顯示）
+
+    # 反過來：會顯示的那檔是舊的 → 欄位要留著，且當日的那列留白（不重複寫今天的日期）
+    out2 = sbl_signal.compute_latest(["1303", "2330"], live_ids=["2330"]).set_index("stock_id")
+    assert out2.loc["2330", "借券資料日"] == "2026-10-08"
+    assert pd.isna(out2.loc["1303", "借券資料日"])
+
+
 def test_fetch_stock_days_parses_and_shares_to_lots(monkeypatch):
     monkeypatch.setattr(sbl_signal, "fetch", lambda *a, **k: [
         {"date": "2026-10-12", "SBLShortSalesCurrentDayBalance": 20651000},
