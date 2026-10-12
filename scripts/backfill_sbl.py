@@ -68,6 +68,12 @@ def main():
         print(f"  [{i}/{len(todo)}] {d}  {len(rows)} 檔")
         time.sleep(args.sleep)
 
+    if todo and n_rows == 0:
+        # 大聲報錯：全市場查詢（不帶 data_id）是 Sponsor 專屬，會員掉回 register 後每天都回空，
+        # 而逐日印「（無資料）」跟真的放假長得一模一樣 → 2026-10-07~12 靜默停更三個交易日。
+        print("\n🔴 待補的日子全部抓到 0 筆：`TaiwanDailyShortSaleBalances` 的**全市場查詢需 Sponsor**，"
+              "會員過期就會這樣（不是真的沒資料）。")
+        print("   日常報告不受影響：run_all 會改走 sbl_signal 的**逐檔**補抓（免費層可用，只補當日候選）。")
     print(f"\n✅ 完成：借券 {n_days} 交易日 / {n_rows} 筆 → DB sbl")
     print("   記得 dump 寫回 CSV：python -m scripts.sync_data dump --keep-days 260")
 

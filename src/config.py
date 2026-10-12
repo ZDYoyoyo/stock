@@ -15,6 +15,8 @@ class T11:
     LOOKBACK_DAYS = 10          # 觀察最近幾個交易日
     ALLOWED_MISSING_DAYS = 2    # 容許窗口內偶發缺日（抓取失敗/資料未齊）
     MIN_CONSECUTIVE_BUY = 4     # 投信(或外資)最少連續買超天數
+    SOFT_CONSECUTIVE_BUY = 3    # 放寬版（T11-3 軌）：更早期的吸籌，其餘條件完全相同
+                                # （2026-10 使用者要求；分開一軌顯示，未回測驗證）
     MAX_PRICE_GAIN = 0.12       # 期間股價漲幅上限（還沒噴出）
     MIN_PRICE_GAIN = -0.08      # 跌太多=接刀/套牢，排除（回測證實「抗跌」有效，故收緊）
     MIN_BUY_RATIO = 0.05        # 法人累計買超張數 / 期間總成交張數 下限（實測中位約4.4%）

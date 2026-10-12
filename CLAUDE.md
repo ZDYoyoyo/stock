@@ -55,6 +55,9 @@ trust_net/dealer_net/total_net`、`margin_balance/short_balance` 同理）。所
 用 `一鍵執行/*.bat` 操作，看報告做台股波段／當沖／長期決策。
 
 **五軌**：T11 法人吸貨、T16 抗跌強勢、T12 月營收動能、長期價值、當沖候選。
+（＋ **T11-3**：T11 的放寬版，連買門檻 4 天→3 天、其餘條件一字不改，**分開一區顯示**、兩區不重複；
+2026-10 使用者要求。實作＝`t11.run(min_consec=3)` 跑一次超集，所有 enrich 做完後再依 `consec_buy_days`
+切成 T11(≥4) / T11-3(=3) 兩軌 → 欄位天然一致，不必把新變數穿過二十幾處 enrich。未回測驗證。）
 （＋第6軌 **隔日沖鎖碼候選**：漲停/大漲 + 主力/隔日沖大戶鎖碼進場，實驗性、未回測、見 `daytrade_snipe`。）
 
 ## 常用指令
@@ -76,7 +79,14 @@ python -m scripts.sync_data load               # 由 CSV 重建 stock.db
   五軌「主力淨額」「隔日沖賣壓%」、隔日追蹤區「他們倒了幾張」整組、個股深掘分點區、
   `broker_profile.expected_pressure` 預估賣壓 全部留白。第6軌實質降級成「漲停/大漲清單」。
 - ❌ `TaiwanStockHoldingSharesPer` 千張大戶**歷史回補**（`backfill_holders`）→ 日常週更走**免費 TDCC**，不受影響。
-- ✅ 仍可用：借券餘額 `TaiwanDailyShortSaleBalances`、外資持股 `TaiwanStockShareholding`、
+- ❌🔴 `TaiwanDailyShortSaleBalances` 借券的**全市場查詢（不帶 data_id）**→ Sponsor 專屬，
+  `backfill_sbl` 從此靜默抓 0 筆、DB `sbl` 停在 10-06（過了三個交易日才發現）。
+  ⚠️**這更正 10-07 當天的盤點**：當時我用 `data_id='2330'` 測到 5 筆就標成「✅不受影響」——
+  **逐檔查詢免費層確實可用，全市場查詢不行**，兩者權限不同，測一種不能代表另一種。
+  ✅已修（2026-10-12）：`sbl_signal.compute_latest()` 比對資料日，DB 不夠新就**逐檔補抓**
+  （免費層 1 call/檔、只對當日真的會顯示的候選 ~100 檔）並寫回 DB；補不到就標『借券資料日』欄、
+  落後超過 5 個交易日整檔留白——不讓上週的餘額看起來像今天的。
+- ✅ 仍可用：外資持股 `TaiwanStockShareholding`、
   月營收 `TaiwanStockMonthRevenue`、財報 `TaiwanStockFinancialStatements`、估值 `TaiwanStockPER`。
   （測這些時若回 0 筆要先確認 start_date 區間內是否本來就沒資料——月頻/季頻資料容易誤判成權限問題。）
 📌 `broker_profile` 持久化計數器仍有 ~12.5 萬樣本在 CSV/DB，**歷史分點行為檔案沒丟**，
@@ -187,8 +197,13 @@ Sponsor 恢復後要重跑程序才會重新偵測。
   「當沖比均{n}日＋當沖比趨勢(🔥升溫/❄降溫/➖持平＝今日 vs 前n-1日均)」→ 挑正在升溫的妖股 arena(僅當沖軌加)。
 - `scripts/backfill_daytrade.py` — 回補當沖量歷史→DB `day_trade` 表(張)。逐日全市場(TWSE+TPEX 各1 call/交易日)、
   逐日 commit 可續跑；`--days N` 增量。run_all `_update` 已自動接(每日累積)。dump 隨 `sync_data` 進 CSV(進 git)。
-- `src/sbl_signal.py` — 借券賣出餘額(法人真實空單)：`compute_from_db`(讀 DB sbl 歷史→借券賣出餘額+借券增減趨勢)
-  優先；`compute`(逐檔 live 查) fallback；`fetch_market_day`(Sponsor 全市場單日→DB rows)。
+- `src/sbl_signal.py` — 借券賣出餘額(法人真實空單)。**日常取用口＝`compute_latest(ids, live_ids=)`**：
+  DB 夠新就直接用(零 API、含借券增減)；不夠新就對 `live_ids`(＝真的會顯示的那幾檔，各軌 head 15~20)
+  **逐檔補抓**(`fetch_stock_days`/`backfill_live`，免費層 1 call/檔)並**寫回 DB**(借券增減才算得出來、深掘曲線也接得上)；
+  仍補不到→加『借券資料日』欄逐檔標；落後 >5 個交易日→整檔留白。
+  ⚠️`fetch_market_day`(不帶 data_id 的全市場單日)**需 Sponsor**，到期後回 400 → `backfill_sbl` 抓 0 筆。
+  ⚠️`compute_from_db` 只取「該檔最後一筆」，**單獨用會把舊值當今天的**(2026-10-07~12 實際靜默失真三天)，
+  所以 run_all 不再直接呼叫它。
 - `scripts/backfill_sbl.py` — 回補借券歷史→DB `sbl` 表(股÷1000→張)。逐日全市場(1 call/交易日)、逐日 commit
   可續跑；`--days N` 增量。run_all `_update` 已自動接(每日累積)。dump 隨 `sync_data` 進 CSV(進 git)。
 - `scripts/backfill_holders.py` — 回補千張大戶歷史→DB `big_holders` 表(Sponsor `TaiwanStockHoldingSharesPer`)。

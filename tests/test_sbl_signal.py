@@ -99,5 +99,107 @@ def test_compute_from_db_single_day_delta_na(monkeypatch, tmp_path):
 def test_compute_from_db_no_history_empty(monkeypatch, tmp_path):
     _tmp_sbl_db(monkeypatch, tmp_path, [])
     out = sbl_signal.compute_from_db(["1303"])
-    assert list(out.columns) == ["stock_id", "借券賣出餘額", "借券增減"]
+    assert list(out.columns) == ["stock_id", "借券賣出餘額", "借券增減", "借券資料日"]
     assert out.empty
+
+
+def test_compute_from_db_labels_each_stocks_own_date(monkeypatch, tmp_path):
+    """停更時各檔新舊可能不一（有補到的是今天、沒補到的還停在上週）→ 逐檔標資料日。"""
+    _tmp_sbl_db(monkeypatch, tmp_path, [
+        {"date": "2026-10-06", "stock_id": "1303", "sbl_balance": 20651},
+        {"date": "2026-10-12", "stock_id": "2330", "sbl_balance": 13282},
+    ])
+    out = sbl_signal.compute_from_db(["1303", "2330"]).set_index("stock_id")
+    assert out.loc["1303", "借券資料日"] == "2026-10-06"
+    assert out.loc["2330", "借券資料日"] == "2026-10-12"
+
+
+# --- compute_latest：Sponsor 到期後的日常取用口（別讓舊值假裝成今天的）---
+
+def _tmp_db(monkeypatch, tmp_path, sbl_rows, price_days):
+    """建暫時 DB：sbl 歷史 + price 交易日（算資料新舊要用真實交易日，不是日曆日）。"""
+    from src import db
+    monkeypatch.setattr(db, "DB_PATH", str(tmp_path / "t.db"))
+    db.clear_cache()                      # 整表快取是進程級的，不清會吃到別的測試的 price
+    with db.connect() as conn:
+        conn.executescript(db._SCHEMA)
+        db.upsert(conn, "sbl", sbl_rows)
+        db.upsert(conn, "price", [{"date": d, "stock_id": "1303", "open": 1.0, "high": 1.0,
+                                   "low": 1.0, "close": 1.0, "volume": 1} for d in price_days])
+
+
+_DAYS = ["2026-10-06", "2026-10-07", "2026-10-08", "2026-10-09", "2026-10-12"]
+
+
+def test_compute_latest_fresh_db_no_date_col_and_no_api(monkeypatch, tmp_path):
+    """DB 已是當日 → 不打 API、也不多一欄（常態，版面不變）。"""
+    _tmp_db(monkeypatch, tmp_path,
+            [{"date": "2026-10-12", "stock_id": "1303", "sbl_balance": 20651}], _DAYS)
+    monkeypatch.setattr(sbl_signal, "fetch", _boom)      # 不該被呼叫
+    out = sbl_signal.compute_latest(["1303"])
+    assert out.loc[0, "借券賣出餘額"] == 20651
+    assert "借券資料日" not in out.columns
+
+
+def _boom(*a, **k):
+    raise AssertionError("不該打 API")
+
+
+def test_compute_latest_backfills_per_stock_when_db_stale(monkeypatch, tmp_path):
+    """DB 停在 10-06（Sponsor 到期→全市場抓不到）→ 逐檔補抓(免費層可用)並寫回 DB。"""
+    _tmp_db(monkeypatch, tmp_path,
+            [{"date": "2026-10-06", "stock_id": "1303", "sbl_balance": 20000}], _DAYS)
+    seen = {}
+
+    def fake_fetch(dataset, start_date=None, end_date=None, data_id=None):
+        seen["data_id"] = data_id                     # 必須是逐檔查，不是全市場
+        return [{"date": "2026-10-09", "stock_id": data_id,
+                 "SBLShortSalesCurrentDayBalance": 20100000},
+                {"date": "2026-10-12", "stock_id": data_id,
+                 "SBLShortSalesCurrentDayBalance": 20651000}]
+    monkeypatch.setattr(sbl_signal, "fetch", fake_fetch)
+    out = sbl_signal.compute_latest(["1303"])
+    assert seen["data_id"] == "1303"
+    assert out.loc[0, "借券賣出餘額"] == 20651
+    assert out.loc[0, "借券增減"] == 551              # 補抓後『借券增減』才算得出來
+    assert "借券資料日" not in out.columns             # 已補成當日 → 不需要標
+    assert sbl_signal.latest_db_date() == "2026-10-12"  # 有寫回 DB（深掘曲線也接得上）
+
+
+def test_compute_latest_labels_data_date_when_still_stale(monkeypatch, tmp_path):
+    """補抓也拿不到當日（免費層也查不到）→ 值照出但標上資料日，不讓它假裝是今天的。"""
+    _tmp_db(monkeypatch, tmp_path,
+            [{"date": "2026-10-09", "stock_id": "1303", "sbl_balance": 20651}], _DAYS)
+    monkeypatch.setattr(sbl_signal, "fetch", lambda *a, **k: [])
+    out = sbl_signal.compute_latest(["1303"])
+    assert out.loc[0, "借券賣出餘額"] == 20651
+    assert out.loc[0, "借券資料日"] == "2026-10-09"
+
+
+def test_compute_latest_drops_too_stale(monkeypatch, tmp_path):
+    """落後超過 _MAX_STALE_DAYS 個交易日 → 整檔留白（寧可沒有，也不給過期值）。"""
+    days = ["2026-10-0%d" % d for d in (1, 2, 3, 4, 5, 6, 7, 8, 9)] + ["2026-10-12"]
+    _tmp_db(monkeypatch, tmp_path,
+            [{"date": "2026-10-01", "stock_id": "1303", "sbl_balance": 20651}], days)
+    monkeypatch.setattr(sbl_signal, "fetch", lambda *a, **k: [])
+    assert sbl_signal.compute_latest(["1303"]).empty
+
+
+def test_compute_latest_only_spends_api_on_live_ids(monkeypatch, tmp_path):
+    """全部候選可能有上百檔（T16 四百多），只對真的會顯示的那幾檔花額度。"""
+    _tmp_db(monkeypatch, tmp_path,
+            [{"date": "2026-10-06", "stock_id": "1303", "sbl_balance": 20000}], _DAYS)
+    asked = []
+    monkeypatch.setattr(sbl_signal, "fetch",
+                        lambda *a, **k: asked.append(k.get("data_id")) or [])
+    sbl_signal.compute_latest(["1303", "2330", "2317"], live_ids=["1303"])
+    assert asked == ["1303"]
+
+
+def test_fetch_stock_days_parses_and_shares_to_lots(monkeypatch):
+    monkeypatch.setattr(sbl_signal, "fetch", lambda *a, **k: [
+        {"date": "2026-10-12", "SBLShortSalesCurrentDayBalance": 20651000},
+        {"date": "2026-10-09", "SBLShortSalesCurrentDayBalance": None},   # 缺值→略
+    ])
+    rows = sbl_signal.fetch_stock_days("1303", "2026-10-01", "2026-10-12")
+    assert rows == [{"date": "2026-10-12", "stock_id": "1303", "sbl_balance": 20651}]

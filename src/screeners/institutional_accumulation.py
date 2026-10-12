@@ -28,7 +28,12 @@ def _consecutive_buy_days(net_series: pd.Series) -> int:
     return max(0, consecutive_net_days(net_series.tolist()))
 
 
-def run() -> pd.DataFrame:
+def run(min_consec: int | None = None) -> pd.DataFrame:
+    """min_consec＝最少連續買超天數，預設用 config 的 T11.MIN_CONSECUTIVE_BUY（4 天）。
+
+    傳較小值（如 3）＝放寬成更早期的吸籌（結果是 4 天版的超集，其餘條件完全相同）；
+    run_all 就是跑一次 3 天版，再依 consec_buy_days 切成『T11(≥4天)』與『T11-3(剛好3天)』兩軌顯示。
+    """
     price, inst, margin, info = _load()
     if price.empty or inst.empty:
         raise SystemExit("資料庫是空的，請先執行：python -m scripts.update_data")
@@ -51,6 +56,7 @@ def run() -> pd.DataFrame:
     inst = inst[inst["date"].isin(win_dates)]
 
     min_days = T11.LOOKBACK_DAYS - T11.ALLOWED_MISSING_DAYS  # 容許偶發抓取缺日
+    need_consec = T11.MIN_CONSECUTIVE_BUY if min_consec is None else int(min_consec)
     results = []
     for sid, pg in price.groupby("stock_id"):
         pg = pg.sort_values("date")
@@ -77,7 +83,7 @@ def run() -> pd.DataFrame:
         if ig.empty:
             continue
         consec = _consecutive_buy_days(ig[col])
-        if consec < T11.MIN_CONSECUTIVE_BUY:
+        if consec < need_consec:
             continue
 
         cum_net = ig[col].sum()
