@@ -414,8 +414,15 @@ def main():
         ids = list(dict.fromkeys(ids))   # 去重保序
         if ids:
             print(f"[排雷] 掃波段候選 {len(ids)} 檔（T11+T16強勢）…")
-            lm = landmine.scan(ids, verbose=False)
-            if not lm.empty:
+            # 2026-10-16 實際踩到：排雷逐檔抓 FinMind 財報，一次 402 限流重試完就丟
+            # RuntimeError，**整份日報當場死掉**（報告沒出、推播沒發）。長期軌早就包了
+            # try/except，這裡沒有 → 補上，讓它跟長期軌一樣優雅降級（只是風險/紅旗欄留白）。
+            try:
+                lm = landmine.scan(ids, verbose=False)
+            except (Exception, SystemExit) as e:
+                print(f"   ⚠️ 排雷略過（{type(e).__name__}: {e}）→ 風險/紅旗欄留白")
+                lm = None            # 不用 pd.DataFrame()：pandas 在本函式較後面才 import
+            if lm is not None and not lm.empty:
                 rmap = lm.set_index("stock_id")["風險級"].to_dict()
                 fmap = lm.set_index("stock_id")["紅旗"].to_dict()
                 for d in (df11, df16):
