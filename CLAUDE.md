@@ -531,14 +531,23 @@ push 進 git」的測試想繞過推播問題，結果連那個 push 也沒上�
 **延遲總比 fresh session 那樣完全靜默失敗好**。排程 prompt 因此加了「順手檢查有沒有漏跑的日子」
 （DB 最新交易日比上一個交易日還舊 → `update_data --days 5` 補回來）。
 
-**`trig_01VuTGxNAnkEtuQmLhPNZNkp`｜每小時喚醒（保持 session 活著）**（cron `43 * * * *` UTC，
-每小時 :43 — 伺服器把 `0 * * * *` 錨定到建立的分鐘，不是真的整點）。同樣 self-bind 本 session。
-使用者 2026-10-09 要求建立，說法是「為了 5 小時額度」。prompt 只要求回一行(台北時間＋DB 最新交易日)，
-**明確禁止跑盤後/推播/commit/push**，以免跟盤後排程打架。
-📌 副作用(其實可能是真正的用途)：self-bind 排程要等 session 被喚醒才執行，9/3 曾延遲 3 小時；
-每小時有訊息進來就會順便把排隊的盤後任務帶起來跑 → **盤後延遲應該會大幅縮短**。
-⚠️ 已跟使用者說明：發訊息是**消耗**額度、不會增加額度；5 小時窗是滾動的，不靠發訊息重置。
-要停就 `update_trigger(enabled=false)` 或 `delete_trigger`。
+**`trig_01VuTGxNAnkEtuQmLhPNZNkp`｜盤後喚醒（工作日 20-23 台北·帶起排隊任務）**
+（cron `CRON_TZ=Asia/Taipei 43 20-23 * * 1-5`）。self-bind 本 session。
+用途＝self-bind 排程要等 session 被喚醒才執行(9/3 曾延遲 3 小時)，20~23 點每小時進一則訊息
+就會把排隊的盤後任務帶起來跑。prompt 只要求回一行(台北時間＋DB 最新交易日)，
+**明確禁止主動跑盤後/推播/commit/push**，以免跟盤後排程打架。
+📌 **2026-10-21 從 24h 縮到工作日 20-23**（每週 168→20 次，省 88%）：每次喚醒都要**重讀整個 session
+context**(這段對話很長)，成本跟回的那一行無關、跟 session 長度成正比。盤後準時度不變(21:30 在窗內)。
+
+**`trig_019FoAn4Bcp7BU9PsMWn3hQy`｜額度心跳（極省·獨立 session）**（cron `35 * * * *`，每小時 :35、24h）。
+**`create_new_session_on_fire=true`** → 每次開全新 session，**不碰本 session**。prompt 只有「只回覆 ok，
+不要用任何工具」，通知全關。用途＝使用者要讓 5 小時用量窗持續滾動(2026-10-21 要求)，但不想付
+「喚醒長 session」的高額 context 成本 → 新 session context 幾乎是空的，同樣消耗一次但便宜非常多。
+⚠️ 它**叫不醒本 session**，所以不能取代上面那條盤後喚醒，兩條分工不同。
+⚠️ 已跟使用者說明：發訊息是**消耗**額度、不會增加額度；5 小時窗是滾動的，不靠發訊息重置
+（使用者理解這點，目的是讓窗提早開始計算、提早重置）。
+要停任一條就 `update_trigger(enabled=false)` 或 `delete_trigger`。
+📌 想再省：本對話 context 只會越長越貴，日後可開新 session 重綁這三條排程，成本會掉一截。
 
 📌 `reports/screener/` **不進 git**（.gitignore），要重看舊報告得重跑。
 
