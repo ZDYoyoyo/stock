@@ -266,7 +266,7 @@ stock_id,stock_name,industry,type
 2067,嘉鋼,,tpex
 2069,運錩,,twse
 2070,精湛,,tpex
-2072,世紀風電,,twse
+2072,世紀能源,,twse
 2073,雄順,,tpex
 2101,南港,,twse
 2102,泰豐,,twse
@@ -1643,6 +1643,7 @@ stock_id,stock_name,industry,type
 6890,來億-KY,,twse
 6894,衛司特,,tpex
 6895,宏碩系統,,tpex
+6898,程曦資訊,,tpex
 6899,創為精密,,tpex
 6901,鑽石投資,,twse
 6902,GOGOLOOK,,twse
@@ -1670,6 +1671,7 @@ stock_id,stock_name,industry,type
 6934,心誠鎂,,twse
 6936,永鴻生技,,twse
 6937,天虹,,twse
+6938,藍新資訊,,tpex
 6944,兆聯實業,,twse
 6945,圓祥生技,,tpex
 6947,台鎔科技,,twse
@@ -1707,6 +1709,7 @@ stock_id,stock_name,industry,type
 7705,三商餐飲,,twse
 7708,全家餐飲,,tpex
 7709,榮田,,tpex
+7710,東擎科技,,twse
 7711,永擎,,twse
 7712,博盛半導體,,tpex
 7713,威力德生醫,,tpex
