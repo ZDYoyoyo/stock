@@ -101,6 +101,11 @@ Sponsor 恢復後要重跑程序才會重新偵測。
 升級規劃與實作順序見 `docs/Sponsor升級規劃.md`。⚠️ 別用多帳號多 token 繞額度（違反 ToS，帳號可能被封）。
 - ✅**已回歸五軌日更**（2026-08，額度解放[2]）：盤後主按鈕＋`1_盤後選股.bat` 已移除 `--skip-longterm`，
   長期軌併回每日。若日後嫌長期軌拖慢/無 edge，加回 `--skip-longterm` 即可（`run_longterm` 仍可單獨跑）。
+- 🔴**2026-11-04 雲端排程又加回 `--skip-longterm`**（使用者同意）：Sponsor 到期後免費層額度吃緊，
+  FinMind **402 限流連三天**把軌輪流打掉（11-02 排雷掛、11-03 長期軌掛、11-04 兩個都掛，單次 42~47 次重試）。
+  長期軌回測無 edge 又最吃額度（逐檔深掘）→ 拿掉它把額度留給**排雷的風險/財報紅旗欄**（實用得多）。
+  長期軌改**週末單獨跑** `python -m scripts.run_longterm`。⚠️只動雲端排程 prompt 第 4 步；
+  本機 `1_盤後選股.bat`／GUI 沒動（本機跑的時段不同、不一定撞額度）。
 - （歷史備註）免費 600/時常不夠：主燒在長期軌逐檔深掘，故曾預設 `--skip-longterm`＋長期軌拆週更。
 
 ## 程式地圖（關鍵檔）
@@ -513,6 +518,15 @@ FinMind Sponsor 已辦，規劃見 `docs/Sponsor升級規劃.md`。本 session �
 ## ⏰ 雲端每日排程（Routine）— 已在跑，別重複建
 
 **`trig_01VcrdHdRLu3PaH39LuFsFH4`｜台股盤後（工作日 21:30 台北）— 打進本 session**（cron `30 13 * * 1-5` UTC）。
+📌 **prompt 內已寫入這幾個實際踩過的陷阱**（2026-10~11 累積，排程 prompt 是單一來源，這裡只做備份）：
+  - 跑 `run_all --notify --skip-longterm`（見上節，2026-11-04 起）。
+  - 裝依賴用 **`python -m pip`**：容器 `python` 是 3.11、`pip` 可能是 3.13 的 → 裸 `pip install` 裝到錯解譯器（10-23 踩過）。
+  - push 用 **`git push origin HEAD:claude/taiwan-stock-analysis-asx-mww0s6`**：容器重置後 HEAD 常落在別的本地分支，
+    而 `git push origin <分支名>` 推的是**同名的本地分支**（可能落後）→ 被判 non-fast-forward（10-27 踩過）。
+  - 完整性**自己另查法人/資券筆數**（正常各 1850~1880）：`_data_health` 只比對 price 筆數，
+    抓不到「單一附表整批缺而 price 正常」→ 10-29 法人只有 760 筆、報告照出照推播（這類已第 5 次）。
+  - 查「今天有沒有資料」一定傳 **`YYYYMMDD`**：`twse_client.price()` 會對 ISO 字串切出垃圾日期、
+    API 忽略該參數回**別天**的資料 → 10-23 因此誤判「資料已公布」（實際是颱風休市）。
 **self-bind**（persist_session，綁 `session_01SHwmGGjTDA1GJ3RnN77um4`）：同步 → 確認依賴 →
 `sync_data load` → `run_all --notify` → 完整性檢查 → `dump --keep-days 260` → commit + push → 傳報告。
 用 `list_triggers` 可查；改 prompt 用 `update_trigger`（別 delete 重建，會丟 run 紀錄）。
