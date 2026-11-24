@@ -42,8 +42,29 @@ def assess() -> dict:
 def summary_line(a: dict) -> str:
     if "pct_above_ma20" not in a:
         return f"多空環境：{a.get('regime')}"
-    return (f"多空環境 {a['date']}：{a['regime']}（站上20MA {a['pct_above_ma20']}%、"
+    line = (f"多空環境 {a['date']}：{a['regime']}（站上20MA {a['pct_above_ma20']}%、"
             f"漲跌 {a['adv_decl']}）→ 建議部位 {a['suggested_exposure']}；{a['swing_advice']}")
+    return line + _breadth_flip_note(a)
+
+
+def _breadth_flip_note(a: dict) -> str:
+    """燈號看『站上20MA比例』，是結構指標、反應慢；當天漲跌家數一面倒地跟燈號唱反調時補一句。
+
+    2026-11-24 實際狀況：漲跌 1904/61 全面大漲，燈號仍是 🔴 偏空「0~2 成」——
+    燈號本身沒錯(多數股票還在20MA下)，但不提一句會讓人以為系統沒看到反彈。只加註、不改燈號。
+    """
+    b = a.get("breadth") or {}
+    up, down = b.get("up") or 0, b.get("down") or 0
+    label = a.get("regime", "")
+    if up + down == 0:
+        return ""
+    if "偏多" not in label and up >= 3 * max(down, 1):
+        return (f"｜⚡今日普漲（漲跌 {up}/{down}），但燈號看站上20MA比例、反應較慢；"
+                f"要連續幾天普漲、站上20MA比例回升才算轉折")
+    if "偏多" in label and down >= 3 * max(up, 1):
+        return (f"｜⚡今日普跌（漲跌 {up}/{down}），燈號尚未反映；"
+                f"若連續幾天普跌、站上20MA比例下滑就該減碼")
+    return ""
 
 
 if __name__ == "__main__":

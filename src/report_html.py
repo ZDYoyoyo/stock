@@ -93,6 +93,52 @@ def fmt_group_text(vals) -> str:
 # 各軌的「回測驗證結果」——直接標在標題旁，避免看到清單就當成保證會賺。
 # 來源＝本專案實測（組合回測／walk-forward 樣本外），數字見 reports/*.md。
 # (等級, 短標, 詳述)；等級 ok=通過樣本外／no=無 edge／warn=未驗證或 edge 薄。
+# 需 FinMind Sponsor『券商分點日報』才有值的欄位。一般會員時整欄必空（Sponsor 2026-10 到期、
+# 使用者 2026-11-24 確認不續約）→ 整欄空就不顯示，免得一排空欄被誤讀成「沒人倒貨」；
+# 續約後欄裡有值就自動回來，不需改程式。MD/HTML 都走這一份。
+BROKER_COLS = ("主力淨額", "隔日沖賣壓%", "昨主力淨額", "今主力淨額", "預估賣壓張", "預估賣壓佔量%",
+               "全市場黑名單", "本檔黑名單", "黑名單買張", "黑名單明細",
+               "鎖碼淨額", "黑名單賣張", "倒貨%", "預估賣壓%", "實際賣壓%", "黑名單逐點")
+
+
+def _is_blank(v) -> bool:
+    if v is None:
+        return True
+    try:
+        if pd.isna(v):
+            return True
+    except (TypeError, ValueError):
+        pass
+    return str(v).strip() in ("", "—", "-", "nan", "None", "<NA>")
+
+
+def drop_dead_broker_cols(df):
+    """拿掉整欄都空的分點欄（只動 BROKER_COLS，其他欄即使全空也不碰）。"""
+    if df is None or getattr(df, "empty", True):
+        return df
+    dead = [c for c in BROKER_COLS if c in df.columns and all(_is_blank(v) for v in df[c])]
+    return df.drop(columns=dead) if dead else df
+
+
+def snipe_stats_line(sostats: dict) -> str:
+    """鎖碼追蹤區的統計句（純文字，MD/HTML 共用）：今日均值＋依開高幅度分組＋累積戰績。
+    累積戰績放在 sostats["record"]（picks_tracker.snipe_track_record），沒有就不列。"""
+    if not sostats:
+        return ""
+    record = sostats.get("record")
+    txt = (f"今日均跳空 {sostats['gap']:+.2f}%、均盤中 {sostats['oc']:+.2f}%"
+           f"（盤中走低 {sostats['oc_down']}/{sostats['n']} 檔）")
+    grp = sostats.get("groups") or []
+    if grp:
+        txt += "；今日分組：" + "｜".join(
+            f"{g['label']} {g['n']} 檔 盤中均 {g['oc']:+.2f}%（走低 {g['oc_down']}）" for g in grp)
+    if record and record.get("groups"):
+        txt += (f"。📚 累積戰績（{record['since']} 起 {record['days']} 個交易日、{record['n']} 檔次）："
+                + "｜".join(f"{g['label']} {g['n']} 檔 盤中均 {g['oc']:+.2f}%"
+                            f"（走低 {round(g['oc_down'] / g['n'] * 100)}%）" for g in record["groups"]))
+    return txt
+
+
 BACKTEST_VERDICTS = {
     "T11": ("no", "回測無 edge",
             "組合回測 CAGR −16%／最大回撤 −63%，遠輸買入持有 → **只當選股情報，別當進出場策略**。"),
@@ -382,34 +428,37 @@ def _snipe_ohlc_html(so, sostats) -> str:
     """昨日隔日沖鎖碼候選 → 今日開高低收（專屬區塊，具體驗證開高走低）。對齊 .md 同名段。"""
     if not so or not so.get("rows"):
         return ""
-    df = pd.DataFrame(so["rows"])
+    df = drop_dead_broker_cols(pd.DataFrame(so["rows"]))
     cols = ["stock_id", "name", "鎖碼淨額", "全市場黑名單", "本檔黑名單",
             "黑名單買張", "黑名單賣張", "倒貨%",
             "預估賣壓%", "實際賣壓%", "今主力淨額",
             "昨收", "今開", "今高", "今低", "今收", "漲跌%", "跳空%", "盤中%",
             "高檔回落%", "振幅%", "量能倍數", "當沖比%", "黑名單逐點"]
     cols = [c for c in cols if c in df.columns]
-    sub = ""
-    if sostats:
-        sub = (f"　今日均跳空 {sostats['gap']:+.2f}%、均盤中 {sostats['oc']:+.2f}%"
-               f"（盤中走低 {sostats['oc_down']}/{sostats['n']} 檔）")
+    sub = snipe_stats_line(sostats)
+    sub = f"<br>📊 {sub}" if sub else ""
+    has_brk = "全市場黑名單" in df.columns
+    lead = ("鎖碼淨額＝當時主力買了多少(pick 當日前15買+前15賣淨額，🔴淨買/🟢淨賣)。" if "鎖碼淨額" in df.columns else "")
     h = (f'<h2>🎯 昨日隔日沖鎖碼候選 → 今日走勢（{so["date"]} 精選 → {so.get("trade_date", "今日")} 開高低收）</h2>'
-         f'<p class="note">鎖碼淨額＝當時主力買了多少(pick 當日前15買+前15賣淨額，🔴淨買/🟢淨賣)。'
+         f'<p class="note">{lead}'
          f'具體驗證『開高走低』：跳空%＝隔夜高開幅度(今開 vs 昨收)、'
-         f'盤中%＝開盤後走勢(今收 vs 今開，🔴正=開低走高/守住、🟢負=開高走低)。{sub}'
-         f'<br>🚩 <b>昨天列出的黑名單</b>（pick 當下記下、非事後重算）：<b>全市場黑名單</b>＝跨所有股票的'
-         f'隔日沖慣犯(附隔日沖率%，樣本大最可信)、<b>本檔黑名單</b>＝專門玩這檔的常客(樣本小)；'
-         f'兩邊都上榜＝最該防。名字後的<b>+N張</b>＝那天各買了幾張。'
-         f'<br>💣 <b>他們倒了幾張</b>：<b>黑名單買張</b>(昨天合計買) → <b>黑名單賣張</b>(今天合計倒)、'
-         f'<b>倒貨%</b>＝賣÷買(越接近100%＝昨天鎖的今天倒光；<b>&gt;100%＝賣得比昨天買的還多</b>，'
-         f'手上有更早的貨或反手加空)；最右<b>黑名單逐點</b>逐一列「分點 買X→賣Y(Z%)」，'
-         f'今日反手續買則標『今再買』(＝還沒跑、甚至加碼，常是續攻/軋空的一方)。需 Sponsor 分點。'
-         f'<br>📊 <b>為何漲/跌</b>：<b>預估賣壓%</b>(昨天預測明日會倒多少) vs <b>實際賣壓%</b>'
-         f'(今天昨日大買分點真的倒了多少÷今量)——預測兌現則多半走弱；'
-         f'<b>今主力淨額</b>🔴正=今天主力續買撐盤/🟢負=在倒；'
-         f'<b>高檔回落%</b>=今收vs今高(接近0=守在高檔、跌深=衝高被倒)；'
-         f'振幅%/量能倍數/當沖比%=對殺熱度。分點欄需 Sponsor，抓不到留白。'
-         f'<br>⚠️ 方向不穩(可能軋空續強)、edge 薄、非投資建議。</p>')
+         f'盤中%＝開盤後走勢(今收 vs 今開，🔴正=開低走高/守住、🟢負=開高走低)；'
+         f'<b>高檔回落%</b>=今收vs今高(接近0=守在高檔、跌深=衝高被倒)；振幅%/量能倍數/當沖比%=對殺熱度。{sub}')
+    if has_brk:
+        h += (f'<br>🚩 <b>昨天列出的黑名單</b>（pick 當下記下、非事後重算）：<b>全市場黑名單</b>＝跨所有股票的'
+              f'隔日沖慣犯(附隔日沖率%，樣本大最可信)、<b>本檔黑名單</b>＝專門玩這檔的常客(樣本小)；'
+              f'兩邊都上榜＝最該防。名字後的<b>+N張</b>＝那天各買了幾張。'
+              f'<br>💣 <b>他們倒了幾張</b>：<b>黑名單買張</b>(昨天合計買) → <b>黑名單賣張</b>(今天合計倒)、'
+              f'<b>倒貨%</b>＝賣÷買(越接近100%＝昨天鎖的今天倒光；<b>&gt;100%＝賣得比昨天買的還多</b>，'
+              f'手上有更早的貨或反手加空)；最右<b>黑名單逐點</b>逐一列「分點 買X→賣Y(Z%)」，'
+              f'今日反手續買則標『今再買』(＝還沒跑、甚至加碼，常是續攻/軋空的一方)。'
+              f'<br>📊 <b>為何漲/跌</b>：<b>預估賣壓%</b>(昨天預測明日會倒多少) vs <b>實際賣壓%</b>'
+              f'(今天昨日大買分點真的倒了多少÷今量)——預測兌現則多半走弱；'
+              f'<b>今主力淨額</b>🔴正=今天主力續買撐盤/🟢負=在倒。')
+    else:
+        h += ('<br>🚩 分點相關欄(鎖碼淨額/黑名單/倒貨%/預估與實際賣壓/今主力淨額)需 FinMind Sponsor，'
+              '目前為一般會員 → 已隱藏，只看開高低收。')
+    h += '<br>⚠️ 方向不穩(可能軋空續強)、edge 薄、非投資建議。</p>'
     h += _table(df, cols, ["鎖碼淨額", "今主力淨額", "漲跌%", "跳空%", "盤中%", "高檔回落%"])
     return h
 

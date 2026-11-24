@@ -52,15 +52,31 @@ def _data_health(day: str) -> str:
         with connect() as c:
             rows = c.execute("SELECT date, COUNT(*) FROM price GROUP BY date "
                              "ORDER BY date DESC LIMIT 2").fetchall()
+            if len(rows) < 2 or rows[0][0] != day:
+                return ""
+            prev_day = rows[1][0]
+            # 法人/資券也要比：price 正常但單一附表整批缺的情況已踩過多次
+            # (10/08、10/29 法人只剩 760 筆)，只比 price 時報告照出、推播照發、完全沒警示。
+            side = {}
+            for t, label in (("institutional", "法人"), ("margin", "資券")):
+                n = {d: k for d, k in c.execute(
+                    f"SELECT date, COUNT(*) FROM {t} WHERE date IN (?, ?) GROUP BY date",
+                    (day, prev_day)).fetchall()}
+                side[label] = (n.get(day, 0), n.get(prev_day, 0))
     except Exception:
         return ""
-    if len(rows) < 2 or rows[0][0] != day:
-        return ""
+    probs = []
     cur, prev = rows[0][1], rows[1][1]
-    if prev <= 0 or cur >= prev * 0.7:
+    if prev > 0 and cur < prev * 0.7:
+        probs.append(f"只有 {cur} 檔，前一交易日 {prev} 檔"
+                     f"（少了 {round((1 - cur / prev) * 100)}%）——多半是上市或上櫃整批沒抓到")
+    for label, (n_cur, n_prev) in side.items():
+        if n_prev > 0 and n_cur < n_prev * 0.7:
+            probs.append(f"{label}只有 {n_cur} 筆，前一交易日 {n_prev} 筆"
+                         f"（少了 {round((1 - n_cur / n_prev) * 100)}%）")
+    if not probs:
         return ""
-    return (f"資料可能不完整：{day} 只有 {cur} 檔，前一交易日 {prev} 檔"
-            f"（少了 {round((1 - cur / prev) * 100)}%）——多半是上市或上櫃整批沒抓到。"
+    return (f"資料可能不完整：{day} " + "；".join(probs) + "。"
             f"請重跑一次；若仍如此，等資料源恢復再跑。此報告的篩選結果不可信。")
 
 
@@ -94,9 +110,15 @@ def _update(days: int):
                    cwd=str(ROOT), check=True)
     # 借券賣出餘額（法人真實空單）逐日累積入 DB（Sponsor 一次抓全市場，1 call/日）。
     # 缺的日子才抓；抓不到不擋主流程（enrich 欄留白即可）。
+    # 一般會員打全市場查詢只會回 400（白燒額度）→ 直接略過；借券改由 sbl_signal.compute_latest
+    # 對要顯示的候選逐檔補抓（免費層可用）。Sponsor 偵測跟分點共用同一個探測(行程內快取、只花 1 call)。
     try:
-        subprocess.run([sys.executable, "-m", "scripts.backfill_sbl", "--days", str(days)],
-                       cwd=str(ROOT), check=False)
+        from src.broker_client import available as _sponsor
+        if _sponsor():
+            subprocess.run([sys.executable, "-m", "scripts.backfill_sbl", "--days", str(days)],
+                           cwd=str(ROOT), check=False)
+        else:
+            print("[更新] 借券全市場累積略過（FinMind 一般會員；改由候選逐檔補抓）")
     except Exception as e:
         print(f"[更新] 借券累積略過：{e}")
     # 當沖量逐日累積入 DB（免費 TWSE+TPEX，各 1 call/日）→ 供當沖比熱度趨勢欄。
@@ -422,6 +444,9 @@ def main():
             except (Exception, SystemExit) as e:
                 print(f"   ⚠️ 排雷略過（{type(e).__name__}: {e}）→ 風險/紅旗欄留白")
                 lm = None            # 不用 pd.DataFrame()：pandas 在本函式較後面才 import
+            if lm is not None and lm.attrs.get("fin_skipped"):
+                print(f"   ⚠️ 排雷財報略過 {lm.attrs['fin_skipped']}/{len(lm)} 檔"
+                      f"（{lm.attrs.get('fin_error', '')}）→ 這幾檔只剩籌碼/技術紅旗，紅旗欄標『⚠財報未查』")
             if lm is not None and not lm.empty:
                 rmap = lm.set_index("stock_id")["風險級"].to_dict()
                 fmap = lm.set_index("stock_id")["紅旗"].to_dict()
@@ -619,6 +644,14 @@ def main():
     except Exception as e:
         print(f"   ⚠️ 除權息預告略過（{e}）")
 
+    # FinMind 會員等級：分點、全市場借券等都需 Sponsor（2026-11-24 使用者確認不續約、回到一般會員）。
+    # 用分點探測判定（行程內快取，_update 若已探測過就不再花 call）；探測失敗一律當一般會員。
+    try:
+        from src.broker_client import available as _sponsor
+        _sponsor_ok = bool(_sponsor())
+    except Exception:
+        _sponsor_ok = False
+
     # 併入分點主力淨額 + 隔日沖賣壓%（需 Sponsor 分點；不可用則欄留白）。
     # 分點量大→逐檔 on-demand(每檔 T/T-1 各 1 call)，僅對『顯示』的候選(head 20/軌)控制 call 數。
     try:
@@ -673,8 +706,10 @@ def main():
         "\n　↳ 借券賣出餘額(張)＝法人/外資向券商借股放空、尚未回補的在外空單；⚠️與融券不同(融券=散戶)，這是**法人真實空單**。餘額高=法人空方壓力大，後續回補是潛在買盤。絕對張數大型股天生高，判讀對照股本/成交量"
         "\n　↳ 借券資料日＝該檔借券餘額是哪一天的；**只有不是今天時才出現**(資料來源停更/補不到)，看到就代表那兩欄是舊值，過舊(超過5個交易日)則整檔留白"
         "\n　↳ 借券增減(張)＝借券賣出餘額 vs 前一交易日：🔴+=法人空單加碼(偏空)／🟢−=法人回補(潛在買盤)；看的是法人空方『今天在加碼還是收手』(顏色只表增減方向，好壞配股價看)"
-        "\n🏦 主力分點｜主力淨額(張)＝今日前15大買超分點淨額＋前15大賣超分點淨額(🔴淨買/🟢淨賣)：籌碼是否集中在少數主力進出(比三大法人更廣，含特定券商/大戶)"
-        "\n　↳ 隔日沖賣壓%＝昨日『前15大買超分點』今日轉淨賣量÷今日量：抓當沖比看不到的隔日沖(昨進今出的大戶倒貨)——比率高=昨天的大買家今天在跑(隔天常殺低)⚠️；只算昨日大買家、濾掉正常換手；需 Sponsor 分點，抓不到留白"
+        + ("\n🏦 主力分點｜主力淨額(張)＝今日前15大買超分點淨額＋前15大賣超分點淨額(🔴淨買/🟢淨賣)：籌碼是否集中在少數主力進出(比三大法人更廣，含特定券商/大戶)"
+           "\n　↳ 隔日沖賣壓%＝昨日『前15大買超分點』今日轉淨賣量÷今日量：抓當沖比看不到的隔日沖(昨進今出的大戶倒貨)——比率高=昨天的大買家今天在跑(隔天常殺低)⚠️；只算昨日大買家、濾掉正常換手；需 Sponsor 分點，抓不到留白"
+           if _sponsor_ok else
+           "\n🏦 主力分點／隔日沖賣壓%欄：需 FinMind Sponsor 券商分點資料，目前為一般會員 → 暫不顯示（續約後自動恢復）") +
         "\n📈 技術面｜均線排列＝5/10/20MA短多空(🔴多頭5>10>20順勢·🟢空頭·⚪糾結待變盤)；季線年線＝股價vs60/240MA中長多空(🔴站上季年最強·🟢跌破季年最弱)"
         "\n　↳ 20MA乖離%＝股價偏離20MA(正=偏強·過大追高風險·負=跌破)；52週位置%＝在近1年區間位置(0=年內最低·100=年內最高·波段高低檔)"
         "\n　↳ 成交額億＝今日量×收盤(資金權重，張數不分價位會誤判：2000元股vs20元股同100張差百倍)"
@@ -768,6 +803,16 @@ def main():
                  "無則只出漲停清單。方向未定(可能軋空續強，也可能開高走低)——回測結論 EOD 欄位皆無法穩定預測隔日方向，"
                  "僅隔日沖賣壓%極端(≥20%)或預估賣壓佔量%偏高才弱預告次日偏空。僅圈定舞台、非多空訊號。"
                  "\n　↳ 想看『哪些分點昨買今賣』的逐檔名單，跑 python -m scripts.run_stock <代號>（個股深掘）。")
+    if not _sponsor_ok:
+        # 一般會員沒有分點 → 上面那段講的主力/黑名單/賣壓全都沒有，照印只會誤導（欄位也已隱藏）
+        notesnipe = ("📅 " + (f"{_snipe_asof}。" if _snipe_asof else "")
+                     + "🎯 隔日沖鎖碼候選｜⚠️ **目前 FinMind 為一般會員、沒有券商分點資料** → 本區只剩"
+                     "『今日漲停/大漲(≥9%)、依成交額排序』的清單，**看不出是誰在鎖碼、會不會倒**；"
+                     "主力淨額/黑名單/預估賣壓等欄已隱藏（續約 Sponsor 後自動恢復）。"
+                     "\n　↳ 判斷欄(沿用他軌)：量能倍數(>1.5爆量撐漲停·<1量縮虛漲)、20MA乖離%/52週位置%(位階·過高追高風險)、"
+                     "均線排列/季線年線(趨勢)、外資/投信今日(法人站同邊否)、借券增減(空方加碼/回補)、券資比%(空方力道)。"
+                     "\n⚠️ 🔬回測(356樣本)：這類股隔日普遍開高、盤中走低，開越高跌越兇，但有軋空尾部；"
+                     "收盤對收盤≈+0.4%、edge 薄 → **當沖舞台，別抱過夜**。實戰分組統計見明日追蹤區。非投資建議。")
 
     OUTPUT_DIR.mkdir(parents=True, exist_ok=True)
     today = date.today().isoformat()
@@ -791,6 +836,14 @@ def main():
     # 昨日隔日沖鎖碼候選 → 今日開高低收（專屬區塊，具體驗證開高走低）
     so = pt.snipe_ohlc(data_day)
     sostats = pt.snipe_ohlc_stats(so)
+    if sostats:
+        try:                                   # 累積實戰戰績（零 API，只讀 picks.csv + DB）
+            sostats["record"] = pt.snipe_track_record()
+        except Exception as e:
+            print(f"   ⚠️ 鎖碼累積戰績略過（{e}）")
+    # 分點欄整欄空(一般會員)就不顯示。放在 pt.save 之後：picks.csv 的欄位結構不受影響。
+    df11, df11b, df16, df12, dflt, dfdt, dfsnipe = (
+        report_html.drop_dead_broker_cols(d) for d in (df11, df11b, df16, df12, dflt, dfdt, dfsnipe))
     # 持股籌碼歸因算一次，.md 與 .html 共用（確保兩份內容一致）
     pf_attr = _holdings_attribution(pf_view) if not pf_view.empty else []
 
@@ -862,27 +915,30 @@ def main():
         if so.get("rows"):
             f.write(f"\n## 🎯 昨日隔日沖鎖碼候選 → 今日走勢"
                     f"（{so['date']} 精選 → {so.get('trade_date', '今日')} 開高低收）\n\n")
-            sline = ""
-            if sostats:
-                sline = (f"　今日均跳空 {sostats['gap']:+.2f}%、均盤中 {sostats['oc']:+.2f}%"
-                         f"（盤中走低 {sostats['oc_down']}/{sostats['n']} 檔）")
-            f.write("> 鎖碼淨額＝當時主力買了多少(pick 當日前15買+前15賣淨額)。"
-                    "具體驗證『開高走低』：跳空%＝隔夜高開(今開vs昨收)、"
-                    f"盤中%＝開盤後走勢(今收vs今開，正=守住/走高、負=開高走低)。{sline}\n")
-            f.write("> 🚩 **昨天列出的黑名單**(pick 當下記下、非事後重算)：全市場黑名單＝跨所有股票的"
-                    "隔日沖慣犯(附隔日沖率%，樣本大最可信)、本檔黑名單＝專門玩這檔的常客(樣本小)；"
-                    "兩邊都上榜＝最該防。名字後的 **+N張**＝那天各買了幾張。\n")
-            f.write("> 💣 **他們倒了幾張**：黑名單買張(昨天合計買) → 黑名單賣張(今天合計倒)、"
-                    "倒貨%＝賣÷買(越接近100%＝昨天鎖的今天倒光；**>100%＝賣得比昨天買的還多**，"
-                    "手上有更早的貨或反手加空)；最右『黑名單逐點』逐一列「分點 買X→賣Y(Z%)」，"
-                    "今日反手續買則標『今再買』(＝還沒跑、甚至加碼，常是續攻/軋空的一方)。需 Sponsor 分點。\n")
-            f.write("> 📊 **為何漲/跌**：預估賣壓%(昨天預測明日會倒多少) vs 實際賣壓%"
-                    "(今天昨日大買分點真的倒了多少÷今量)——預測兌現則多半走弱；"
-                    "今主力淨額(正=今天主力續買撐盤/負=在倒)；"
-                    "高檔回落%=今收vs今高(接近0=守在高檔、跌深=衝高被倒)；"
-                    "振幅%/量能倍數/當沖比%=對殺熱度。分點欄需 Sponsor，抓不到留白。\n")
+            sdf = report_html.drop_dead_broker_cols(pd.DataFrame(so["rows"]))
+            sline = report_html.snipe_stats_line(sostats)
+            has_brk = "全市場黑名單" in sdf.columns
+            lead = ("鎖碼淨額＝當時主力買了多少(pick 當日前15買+前15賣淨額)。" if "鎖碼淨額" in sdf.columns else "")
+            f.write(f"> {lead}具體驗證『開高走低』：跳空%＝隔夜高開(今開vs昨收)、"
+                    "盤中%＝開盤後走勢(今收vs今開，正=守住/走高、負=開高走低)；"
+                    "高檔回落%=今收vs今高(接近0=守在高檔、跌深=衝高被倒)；振幅%/量能倍數/當沖比%=對殺熱度。\n")
+            if sline:
+                f.write(f"> 📊 {sline}\n")
+            if has_brk:
+                f.write("> 🚩 **昨天列出的黑名單**(pick 當下記下、非事後重算)：全市場黑名單＝跨所有股票的"
+                        "隔日沖慣犯(附隔日沖率%，樣本大最可信)、本檔黑名單＝專門玩這檔的常客(樣本小)；"
+                        "兩邊都上榜＝最該防。名字後的 **+N張**＝那天各買了幾張。\n")
+                f.write("> 💣 **他們倒了幾張**：黑名單買張(昨天合計買) → 黑名單賣張(今天合計倒)、"
+                        "倒貨%＝賣÷買(越接近100%＝昨天鎖的今天倒光；**>100%＝賣得比昨天買的還多**，"
+                        "手上有更早的貨或反手加空)；最右『黑名單逐點』逐一列「分點 買X→賣Y(Z%)」，"
+                        "今日反手續買則標『今再買』(＝還沒跑、甚至加碼，常是續攻/軋空的一方)。\n")
+                f.write("> 📊 **為何漲/跌**：預估賣壓%(昨天預測明日會倒多少) vs 實際賣壓%"
+                        "(今天昨日大買分點真的倒了多少÷今量)——預測兌現則多半走弱；"
+                        "今主力淨額(正=今天主力續買撐盤/負=在倒)。\n")
+            else:
+                f.write("> 🚩 分點相關欄(鎖碼淨額/黑名單/倒貨%/預估與實際賣壓/今主力淨額)需 FinMind Sponsor，"
+                        "目前為一般會員 → 已隱藏，只看開高低收。\n")
             f.write("> ⚠️ 方向不穩(可能軋空續強)、edge 薄、非投資建議。\n\n")
-            sdf = pd.DataFrame(so["rows"])
             sdf = sdf[[c for c in ["stock_id", "name", "鎖碼淨額", "全市場黑名單", "本檔黑名單",
                                    "黑名單買張", "黑名單賣張", "倒貨%",
                                    "預估賣壓%", "實際賣壓%", "今主力淨額", "昨收", "今開",

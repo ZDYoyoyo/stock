@@ -261,8 +261,77 @@ def snipe_ohlc_stats(so: dict) -> dict:
         return {}
     gap = [r["跳空%"] for r in rows]
     oc = [r["盤中%"] for r in rows]
-    return {"gap": round(sum(gap) / len(gap), 2), "oc": round(sum(oc) / len(oc), 2),
-            "oc_down": sum(1 for x in oc if x < 0), "n": len(rows)}
+    out = {"gap": round(sum(gap) / len(gap), 2), "oc": round(sum(oc) / len(oc), 2),
+           "oc_down": sum(1 for x in oc if x < 0), "n": len(rows)}
+    # 依『隔夜有沒有開高』分組：回測唯一有鑑別力的變數就是開高幅度，
+    # 2026-11 實戰也連續多天看到「開高的盤中倒、開低的反彈」→ 直接在報告上分組列出。
+    out["groups"] = _gap_groups([(g, o) for g, o in zip(gap, oc)])
+    return out
+
+
+# 依隔夜跳空分三組。開高>7% 是回測裡跌最兇的一組（常是一價漲停開、也可能整天鎖住），單獨看。
+_GAP_LABELS = ("開高>7%", "開高0~7%", "開平/開低")
+
+
+def _gap_bucket(g: float) -> str:
+    """跳空恰為 0 歸『開平/開低』（沒有開高就沒有『開高走低』可言）。"""
+    if g > 7:
+        return _GAP_LABELS[0]
+    return _GAP_LABELS[1] if g > 0 else _GAP_LABELS[2]
+
+
+def _gap_groups(pairs) -> list[dict]:
+    """[(跳空%, 盤中%)] → 各組 {label, n, oc 均盤中%, oc_down 盤中走低數}；空組不列。"""
+    res = []
+    for label in _GAP_LABELS:
+        ocs = [o for g, o in pairs if _gap_bucket(g) == label]
+        if ocs:
+            res.append({"label": label, "n": len(ocs),
+                        "oc": round(sum(ocs) / len(ocs), 2),
+                        "oc_down": sum(1 for o in ocs if o < 0)})
+    return res
+
+
+def snipe_track_record(track: str = "隔日沖鎖碼") -> dict:
+    """累積戰績：picks.csv 裡**所有**歷史鎖碼候選 → 隔一個交易日的跳空%/盤中%，依開高幅度分組。
+
+    每天的追蹤區只看昨天那十幾檔、樣本太小；這裡把 picks 存下來的每一天都算進來，
+    就是「實戰」版的回測（point-in-time：pick 當下存的名單，不事後重選）。
+    純讀本機 picks.csv + DB price，零 API。資料不足回 {}。
+    回傳 {"since", "days", "n", "groups": [...同 _gap_groups...]}。
+    """
+    df = _load()
+    picks = df[df["track"] == track]
+    if picks.empty:
+        return {}
+    from .db import connect
+    with connect() as conn:
+        px = pd.read_sql("SELECT date, stock_id, open, close FROM price", conn)
+    if px.empty:
+        return {}
+    trading = sorted(px["date"].unique())
+    px = px.set_index(["date", "stock_id"])
+    pairs, used_days = [], set()
+    for pdate, sub in picks.groupby("date"):
+        # 同 snipe_ohlc：pick 標籤可能是非交易日 → 基準＝≤標籤的最後交易日，隔日＝其後第一個交易日
+        i = next((k for k in range(len(trading) - 1, -1, -1) if trading[k] <= str(pdate)), None)
+        if i is None or i + 1 >= len(trading):
+            continue
+        ref, nxt = trading[i], trading[i + 1]
+        for sid in sub["stock_id"].astype(str):
+            try:
+                yc = float(px.loc[(ref, sid), "close"])
+                op, cl = float(px.loc[(nxt, sid), "open"]), float(px.loc[(nxt, sid), "close"])
+            except (KeyError, TypeError, ValueError):
+                continue
+            if not (yc > 0 and op > 0 and cl > 0):
+                continue                      # 停牌/無成交（開盤價 0）不算
+            pairs.append(((op - yc) / yc * 100, (cl - op) / op * 100))
+            used_days.add(str(pdate))
+    if not pairs:
+        return {}
+    return {"since": min(used_days), "days": len(used_days), "n": len(pairs),
+            "groups": _gap_groups(pairs)}
 
 
 def summary_stats(ft: dict) -> dict:

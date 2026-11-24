@@ -202,14 +202,30 @@ def scan(stock_ids, sleep: float = 0.35, verbose: bool = True) -> pd.DataFrame:
     mret = _market_median_return(price)
 
     rows = []
+    # 財務面逐檔打 FinMind；免費會員額度(600/時)常被用完回 402。原本一檔失敗就整批 raise →
+    # 呼叫端把『全部』風險/紅旗欄留白（2026-11-10/12/13 都發生），連不需 API 的籌碼/技術紅旗也一起丟了。
+    # 改成：財務抓不到只影響財務那半，並標『財報未查』；而且第一次失敗後就不再逐檔重試
+    # (每檔重試要等 60+120+180 秒，額度用完時後面幾乎必然一樣失敗)。
+    fin_down = ""
+    fin_skipped = 0
     for sid in stock_ids:
         ct_flags, ct_info, has_db = _chip_tech_flags(sid, ctx, mret)
-        fin_flags, fin_info = _fin_flags(sid)
+        fin_flags, fin_info = [], {}
+        if not fin_down:
+            try:
+                fin_flags, fin_info = _fin_flags(sid)
+            except Exception as e:
+                fin_down = f"{type(e).__name__}: {e}"
+        if fin_down and not fin_info:
+            fin_skipped += 1
         flags = ct_flags + fin_flags
         score = len(ct_flags) + len(fin_flags)
+        red = "；".join(flags) if flags else "—"
+        if fin_down and not fin_info:
+            red = ("⚠財報未查" if red == "—" else f"{red}；⚠財報未查")
         row = {"stock_id": sid, "name": name_map.get(sid, ""),
                "風險分": score, "風險級": _level(score),
-               "紅旗": "；".join(flags) if flags else "—"}
+               "紅旗": red}
         row.update({k: v for k, v in {**ct_info, **fin_info}.items()})
         rows.append(row)
         if verbose:
@@ -220,4 +236,7 @@ def scan(stock_ids, sleep: float = 0.35, verbose: bool = True) -> pd.DataFrame:
     df = pd.DataFrame(rows)
     if df.empty:
         return df
-    return df.sort_values("風險分", ascending=False).reset_index(drop=True)
+    df = df.sort_values("風險分", ascending=False).reset_index(drop=True)
+    df.attrs["fin_skipped"] = fin_skipped      # 財報沒查到的檔數（呼叫端印警示用）
+    df.attrs["fin_error"] = fin_down
+    return df
