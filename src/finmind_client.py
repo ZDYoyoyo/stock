@@ -56,3 +56,24 @@ def fetch(dataset: str, start_date: str, end_date: str | None = None,
             raise RuntimeError(f"FinMind error: {payload.get('msg')}")
         return payload.get("data", [])
     raise RuntimeError(f"FinMind {dataset} 重試 {retries} 次仍失敗")
+
+
+def usage() -> dict | None:
+    """查這個 token 本小時已用幾次／上限（FinMind user_info；查詢本身不計次，2026-11-25 實測）。
+
+    計數每個整點歸零。用途是診斷 402：撞到限流時印出來，就分得出是「這個 token 真的用完」
+    還是「token 沒用完卻被擋」（後者代表不是我們的用量問題）。查不到回 None，不影響主流程。
+    """
+    if not _TOKEN:
+        return None
+    try:
+        r = requests.get("https://api.web.finmindtrade.com/v2/user_info",
+                         params={"token": _TOKEN}, timeout=20)
+        d = r.json()
+        if d.get("status") != 200:
+            return None
+        return {"used": d.get("user_count"), "limit": d.get("api_request_limit"),
+                "level": d.get("level_title")}
+    except Exception:
+        return None
+

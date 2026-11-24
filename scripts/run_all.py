@@ -447,6 +447,12 @@ def main():
             if lm is not None and lm.attrs.get("fin_skipped"):
                 print(f"   ⚠️ 排雷財報略過 {lm.attrs['fin_skipped']}/{len(lm)} 檔"
                       f"（{lm.attrs.get('fin_error', '')}）→ 這幾檔只剩籌碼/技術紅旗，紅旗欄標『⚠財報未查』")
+                # 診斷用：撞到 402 時這個 token 本小時到底用了多少。一次完整盤後實測只用約 50~150 次
+                # (上限 600)，所以若這裡顯示遠低於上限，代表不是我們用完的（原因不在本程式）。
+                from src.finmind_client import usage as _fm_usage
+                _u = _fm_usage()
+                if _u:
+                    print(f"   ℹ️ FinMind 額度：本小時已用 {_u['used']}/{_u['limit']}（{_u['level']}，每整點歸零）")
             if lm is not None and not lm.empty:
                 rmap = lm.set_index("stock_id")["風險級"].to_dict()
                 fmap = lm.set_index("stock_id")["紅旗"].to_dict()
